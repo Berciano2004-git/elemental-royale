@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Elemental Royale · Battle Royale de magia</title>
+  <meta name="description" content="Battle royale 3D de magos elementales: recoge poderes de fuego, agua, viento y tierra, combina hechizos y sé el último mago en pie." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔮</text></svg>" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="scene-wrap">
+      <canvas id="scene" aria-label="Mundo 3D de Elemental Royale"></canvas>
+      <div id="nameplates"></div>
+    </div>
+
+    <div id="vignette"></div>
+    <div id="damage-flash"></div>
+    <div id="storm-overlay"></div>
+
+    <!-- ============================ HUD ============================ -->
+    <div id="hud" class="hidden">
+      <div class="hud-top-left">
+        <div class="hud-pill alive-pill"><span class="pip"></span><span id="alive-count">10</span><span class="label">magos en pie</span></div>
+        <div class="storm-pill" id="storm-pill">
+          <div class="storm-ring"><span id="storm-phase">1</span></div>
+          <div class="storm-copy">
+            <strong id="storm-status">La tormenta se cierra en 32s</strong>
+            <span id="storm-sub">Sigue el círculo del minimapa</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-top-right">
+        <div class="minimap-card">
+          <canvas id="minimap" width="220" height="220"></canvas>
+          <div class="minimap-footer"><span id="minimap-region">Bosque de Elda</span><span id="match-timer">00:00</span></div>
+        </div>
+        <div id="killfeed" class="killfeed"></div>
+      </div>
+
+      <div class="hud-bottom-left">
+        <div class="vitals">
+          <div class="vital-row hp-row">
+            <div class="vital-icon">❤</div>
+            <div class="vital-track">
+              <div class="vital-fill" id="hp-fill"></div>
+              <div class="vital-shield" id="shield-fill"></div>
+              <span class="vital-text" id="hp-text">100 / 100</span>
+            </div>
+          </div>
+          <div class="vital-row mana-row">
+            <div class="vital-icon">✦</div>
+            <div class="vital-track small">
+              <div class="vital-fill" id="mana-fill"></div>
+              <span class="vital-text" id="mana-text">100</span>
+            </div>
+          </div>
+          <div class="vital-row stamina-row">
+            <div class="vital-icon">➤</div>
+            <div class="vital-track tiny">
+              <div class="vital-fill" id="stamina-fill"></div>
+            </div>
+          </div>
+        </div>
+        <div class="player-tag"><span id="hud-player-name">Mago</span><span id="hud-kills">0 eliminaciones</span></div>
+      </div>
+
+      <div class="hud-bottom-center">
+        <div class="power-slots" id="power-slots">
+          <div class="power-slot empty" data-slot="0">
+            <div class="ps-key">1</div>
+            <div class="ps-icon">·</div>
+            <div class="ps-name">Sin poder</div>
+            <div class="ps-sub">Busca un cristal</div>
+            <div class="ps-cd"></div>
+          </div>
+          <div class="power-slot empty" data-slot="1">
+            <div class="ps-key">2</div>
+            <div class="ps-icon">·</div>
+            <div class="ps-name">Sin poder</div>
+            <div class="ps-sub">clic derecho</div>
+            <div class="ps-cd"></div>
+          </div>
+          <div class="combo-card locked" id="combo-card">
+            <div class="ps-key">3</div>
+            <div class="combo-icon">✧</div>
+            <div class="combo-copy"><strong id="combo-name">Combinación</strong><span id="combo-hint">Equipa dos elementos</span></div>
+            <div class="ps-cd" id="combo-cd"></div>
+          </div>
+        </div>
+        <div class="ability-hints" id="ability-hints"></div>
+      </div>
+
+      <div class="hud-hint">WASD mover &nbsp;·&nbsp; ratón apuntar &nbsp;·&nbsp; clic Izq./Der. lanzar &nbsp;·&nbsp; 1/2 cambiar &nbsp;·&nbsp; 3 combo &nbsp;·&nbsp; Espacio saltar &nbsp;·&nbsp; Shift correr &nbsp;·&nbsp; Esc menú</div>
+      <div id="toasts" class="toasts"></div>
+      <div id="spectate-banner" class="spectate hidden">Observando la partida…</div>
+      <div id="respawn-hint" class="hidden"></div>
+    </div>
+
+    <div id="aim-cursor" class="hidden">
+      <div class="aim-ring"></div>
+      <div class="aim-dot"></div>
+    </div>
+
+    <!-- ============================ INICIO ============================ -->
+    <section id="screen-home" class="screen home-screen">
+      <div class="home-glow"></div>
+      <header class="brand">
+        <div class="brand-kicker">BATTLE ROYALE DE MAGIA</div>
+        <h1>ELEMENTAL<br /><span>ROYALE</span></h1>
+        <p class="brand-sub">Cuatro elementos. Diez magos. Una sola corona.</p>
+      </header>
+
+      <div class="home-grid">
+        <div class="home-menu glass">
+          <label class="field-label" for="input-name">Tu nombre de mago</label>
+          <input id="input-name" class="text-input" maxlength="20" placeholder="Escribe tu nombre" autocomplete="off" />
+
+          <button id="btn-play" class="btn btn-primary btn-big">Entrar al battle royale <span class="arrow">➜</span></button>
+          <div class="menu-row">
+            <button id="btn-customize" class="btn btn-ghost">Personalizar mago</button>
+            <button id="btn-collection" class="btn btn-ghost">Colección</button>
+          </div>
+          <div class="menu-row">
+            <button id="btn-settings" class="btn btn-ghost">Ajustes</button>
+            <button id="btn-quit" class="btn btn-ghost">Salir</button>
+          </div>
+          <p class="menu-note">Se juega en línea: los magos IA completan la partida si faltan jugadores. Comparte la URL del navegador para jugar con amigos en la misma red.</p>
+        </div>
+
+        <div class="hero-card glass">
+          <div class="preview-frame" id="preview-home"></div>
+          <div class="hero-card-copy">
+            <div>
+              <span class="eyebrow">Tu mago</span>
+              <strong id="home-wizard-name">Mago Errante</strong>
+            </div>
+            <button id="btn-customize-2" class="btn btn-small">Editar</button>
+          </div>
+          <p class="hero-card-hint">El gorro, el bastón y los colores se guardan automáticamente para tu próxima partida.</p>
+        </div>
+      </div>
+
+      <footer class="home-footer">
+        <span>WASD mover</span><span>Ratón apuntar</span><span>Clic lanzar hechizos</span><span>3 combinación</span><span>Espacio saltar</span>
+      </footer>
+    </section>
+
+    <!-- ============================ PERSONALIZACIÓN ============================ -->
+    <section id="screen-customize" class="screen hidden">
+      <div class="screen-header">
+        <div>
+          <span class="eyebrow">Taller arcano</span>
+          <h2>Personaliza tu mago</h2>
+        </div>
+        <div class="header-actions">
+          <button id="btn-random-look" class="btn btn-ghost">Sorpréndeme</button>
+          <button id="btn-save-look" class="btn btn-primary">Guardar y volver</button>
+        </div>
+      </div>
+
+      <div class="customize-grid">
+        <div class="customize-preview glass">
+          <div class="preview-frame tall" id="preview-editor"></div>
+          <div class="preview-name">
+            <input id="customize-name" class="text-input compact" maxlength="20" placeholder="Nombre del mago" />
+            <span class="save-tag" id="save-tag">Guardado automático</span>
+          </div>
+        </div>
+
+        <div class="customize-options">
+          <div class="option-card glass">
+            <div class="option-head"><span class="eyebrow">Sombrero</span><strong id="hat-name">Sombrero clásico</strong></div>
+            <div class="stepper">
+              <button class="stepper-btn" id="hat-prev">‹</button>
+              <div class="stepper-dots" id="hat-dots"></div>
+              <button class="stepper-btn" id="hat-next">›</button>
+            </div>
+          </div>
+
+          <div class="option-card glass">
+            <div class="option-head"><span class="eyebrow">Bastón</span><strong id="staff-name">Bastón de cristal</strong></div>
+            <div class="stepper">
+              <button class="stepper-btn" id="staff-prev">‹</button>
+              <div class="stepper-dots" id="staff-dots"></div>
+              <button class="stepper-btn" id="staff-next">›</button>
+            </div>
+          </div>
+
+          <div class="option-card glass colors-card">
+            <div class="color-row"><span class="color-label">Túnica</span><div class="swatches" id="robe-swatches"></div></div>
+            <div class="color-row"><span class="color-label">Sombrero</span><div class="swatches" id="hatcolor-swatches"></div></div>
+            <div class="color-row"><span class="color-label">Bastón</span><div class="swatches" id="staffcolor-swatches"></div></div>
+            <div class="color-row"><span class="color-label">Magia</span><div class="swatches" id="magic-swatches"></div></div>
+            <div class="color-row"><span class="color-label">Cabello</span><div class="swatches" id="hair-swatches"></div></div>
+            <div class="color-row"><span class="color-label">Piel</span><div class="swatches" id="skin-swatches"></div></div>
+          </div>
+          <p class="fineprint">La personalización es cosmética: no cambia el daño ni las habilidades.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ COLECCIÓN ============================ -->
+    <section id="screen-collection" class="screen hidden">
+      <div class="screen-header">
+        <div><span class="eyebrow">Grimorio</span><h2>Colección de poderes</h2></div>
+        <button id="btn-collection-close" class="btn btn-primary">Volver</button>
+      </div>
+      <div id="collection-grid" class="collection-grid"></div>
+    </section>
+
+    <!-- ============================ AJUSTES ============================ -->
+    <section id="screen-settings" class="screen hidden">
+      <div class="screen-header">
+        <div><span class="eyebrow">Opciones</span><h2>Ajustes</h2></div>
+        <button id="btn-settings-close" class="btn btn-primary">Volver</button>
+      </div>
+      <div class="settings-grid">
+        <div class="option-card glass">
+          <div class="option-head"><span class="eyebrow">Audio</span><strong>Volumen general</strong></div>
+          <input id="volume" type="range" min="0" max="100" value="65" />
+          <label class="check-row"><input id="mute" type="checkbox" /> Silenciar todo</label>
+        </div>
+        <div class="option-card glass">
+          <div class="option-head"><span class="eyebrow">Gráficos</span><strong>Calidad</strong></div>
+          <select id="quality" class="select">
+            <option value="low">Baja — equipos modestos</option>
+            <option value="medium" selected>Media — equilibrada</option>
+            <option value="high">Alta — máxima nitidez</option>
+          </select>
+          <p class="fineprint">Ajusta la resolución y la densidad de vegetación. Se guarda automáticamente.</p>
+        </div>
+        <div class="option-card glass wide">
+          <div class="option-head"><span class="eyebrow">Controles</span><strong>Teclado y ratón</strong></div>
+          <div class="controls-list">
+            <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Mover al mago</span></div>
+            <div><kbd>Ratón</kbd><span>Apuntar (la cámara sigue al mago)</span></div>
+            <div><kbd>Clic izq.</kbd><span>Hechizo principal del poder activo</span></div>
+            <div><kbd>Clic der.</kbd><span>Hechizo secundario del poder activo</span></div>
+            <div><kbd>1</kbd><kbd>2</kbd><span>Cambiar de poder equipado</span></div>
+            <div><kbd>3</kbd><span>Combinación elemental (si tienes dos elementos)</span></div>
+            <div><kbd>Espacio</kbd><span>Saltar (animación)</span></div>
+            <div><kbd>Shift</kbd><span>Correr (consume aguante)</span></div>
+            <div><kbd>Rueda</kbd><span>Acercar o alejar la cámara</span></div>
+            <div><kbd>Esc</kbd><span>Menú de pausa</span></div>
+            <div><kbd>Tab</kbd><span>Ver el grimorio de poderes</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ SALA ============================ -->
+    <section id="screen-lobby" class="screen hidden">
+      <div class="screen-header">
+        <div><span class="eyebrow">Sala de invocación</span><h2 id="lobby-title">Reuniendo magos…</h2></div>
+        <div class="lobby-code" title="Comparte la URL para jugar juntos"><span>EN LÍNEA</span><strong id="lobby-url">—</strong></div>
+      </div>
+      <div class="lobby-grid">
+        <div class="lobby-players glass">
+          <div class="lobby-players-head"><strong>Magos en la sala</strong><span id="lobby-count">1 / 10</span></div>
+          <div id="lobby-player-list" class="lobby-player-list"></div>
+          <div class="lobby-bots-note">Los magos IA completan la partida: <strong id="lobby-bots">9</strong> bots listos.</div>
+        </div>
+        <div class="lobby-side">
+          <div class="lobby-preview glass">
+            <div class="preview-frame small" id="preview-lobby"></div>
+            <div class="lobby-preview-copy"><span class="eyebrow">Listo para luchar</span><strong id="lobby-wizard-name">Tu mago</strong><span id="lobby-countdown">15</span></div>
+          </div>
+          <button id="btn-start" class="btn btn-primary btn-big hidden">Empezar ahora</button>
+          <div class="lobby-status glass" id="lobby-status">La partida comenzará automáticamente. Mientras tanto, puedes editar tu mago.</div>
+          <button id="btn-lobby-customize" class="btn btn-ghost">Editar apariencia</button>
+        </div>
+      </div>
+      <p class="lobby-tip">Consejo: los cristales de poder aparecen repartidos por todo el mapa. Los de borde dorado son legendarios.</p>
+    </section>
+
+    <!-- ============================ CARGA ============================ -->
+    <section id="screen-loading" class="screen loading-screen hidden">
+      <div class="loading-rune">
+        <div class="rune-ring"></div><div class="rune-ring delay"></div><div class="rune-core">✦</div>
+      </div>
+      <h2>Generando el mundo</h2>
+      <p id="loading-tip">Bosques, desiertos, montañas y mares…</p>
+    </section>
+
+    <!-- ============================ RESULTADOS ============================ -->
+    <section id="screen-end" class="screen end-screen hidden">
+      <div class="end-card glass">
+        <div class="end-crest" id="end-icon">✦</div>
+        <span class="eyebrow" id="end-eyebrow">FIN DE LA PARTIDA</span>
+        <h2 id="end-title">Derrotado</h2>
+        <p id="end-subtitle">La tormenta arcana se ha cerrado sobre ti.</p>
+        <div class="end-stats">
+          <div><span>Puesto</span><strong id="end-place">#5</strong></div>
+          <div><span>Eliminaciones</span><strong id="end-kills">0</strong></div>
+          <div><span>Sobreviviste</span><strong id="end-time">0:00</strong></div>
+        </div>
+        <div class="end-top" id="end-top"></div>
+        <button id="btn-again" class="btn btn-primary btn-big">Volver a la sala</button>
+        <p class="fineprint">La siguiente partida empezará automáticamente.</p>
+      </div>
+    </section>
+
+    <!-- ============================ PAUSA ============================ -->
+    <div id="pause" class="pause-overlay hidden">
+      <div class="pause-card glass">
+        <span class="eyebrow">Pausa</span>
+        <h2>Elemental Royale</h2>
+        <p class="pause-note">En línea la partida sigue en curso. Al cerrar este menú podrás volver al combate.</p>
+        <button id="btn-resume" class="btn btn-primary">Seguir jugando</button>
+        <div class="menu-row">
+          <button id="btn-pause-collection" class="btn btn-ghost">Grimorio</button>
+          <button id="btn-leave" class="btn btn-ghost">Salir al menú</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="waiting-overlay" class="waiting-overlay hidden">
+      <div class="waiting-card glass">
+        <div class="loading-rune small"><div class="rune-ring"></div><div class="rune-ring delay"></div><div class="rune-core">✦</div></div>
+        <h2>La partida está en curso</h2>
+        <p>Entrarás en la siguiente ronda. Mientras esperas, ajusta tu mago o revisa el grimorio.</p>
+        <button id="btn-wait-customize" class="btn btn-ghost">Personalizar mago</button>
+      </div>
+    </div>
+
+    <div id="connection-status" class="connection-status hidden"></div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

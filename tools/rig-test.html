@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Rig del mago · prueba</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #10131f; overflow: hidden; font: 13px system-ui; color: #cfd6ff; }
+    canvas { display: block; }
+    #labels { position: fixed; inset: 0; pointer-events: none; }
+    #labels span { position: absolute; transform: translate(-50%, 0); letter-spacing: .08em; text-transform: uppercase; font-size: 11px; opacity: .75; }
+  </style>
+</head>
+<body>
+  <div id="labels"></div>
+  <script type="module">
+    import * as THREE from '/node_modules/three/build/three.module.js';
+    import { GLTFLoader } from '/node_modules/three/examples/jsm/loaders/GLTFLoader.js';
+    import { clone as skeletonClone } from '/node_modules/three/examples/jsm/utils/SkeletonUtils.js';
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x10131f);
+    scene.add(new THREE.HemisphereLight(0xdfeaff, 0x2a2340, 2.1));
+    const key = new THREE.DirectionalLight(0xfff1cf, 2.3);
+    key.position.set(3, 7, 6);
+    scene.add(key);
+    const rim = new THREE.DirectionalLight(0x9f7bff, 1.8);
+    rim.position.set(-5, 3, -5);
+    scene.add(rim);
+
+    const grid = new THREE.GridHelper(14, 28, 0x3a4270, 0x232840);
+    scene.add(grid);
+
+    const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.1, 100);
+
+    const loader = new GLTFLoader();
+    const gltf = await loader.loadAsync('/models/mago.glb');
+    const clips = gltf.animations;
+    console.log('clips', clips.map((c) => `${c.name}:${c.duration.toFixed(2)}s`).join(' '), 'bones', (() => { let n = 0; gltf.scene.traverse((o) => { if (o.isBone) n++; }); return n; })());
+
+    const states = [
+      { label: 'reposo', time: 0 },
+      { label: 'idle', time: 1.1 },
+      { label: 'walk', time: 0.26 },
+      { label: 'run', time: 0.17 },
+      { label: 'cast', time: 0.3 },
+      { label: 'death', time: 1.2 },
+    ];
+
+    const labels = document.getElementById('labels');
+    const wrapper = new THREE.Group();
+    scene.add(wrapper);
+
+    const columns = 3;
+    states.forEach((state, index) => {
+      const model = skeletonClone(gltf.scene);
+      const TINTS = { Tunica: 0xd23f4a, Piel: 0x49c46a, Pelo: 0x3f6ad2, Detalle: 0xffffff };
+      const useTints = new URLSearchParams(location.search).has('tint');
+      if (useTints) {
+        model.traverse((o) => {
+          if (!o.isMesh) return;
+          const name = Array.isArray(o.material) ? '' : o.material.name;
+          o.material = o.material.clone();
+          o.material.color.setHex(TINTS[name] ?? 0xffffff);
+        });
+      }
+      const x = (index % columns - 1) * 1.55;
+      const z = (Math.floor(index / columns) - 0.5) * 1.9;
+      model.position.set(x, 0, z);
+      wrapper.add(model);
+      if (index === 0) {
+        const helper = new THREE.SkeletonHelper(model);
+        helper.name = 'skeleton';
+        wrapper.add(helper);
+      }
+
+      if (index > 0) {
+        const clip = THREE.AnimationClip.findByName(clips, state.label);
+        if (clip) {
+          const mixer = new THREE.AnimationMixer(model);
+          const action = mixer.clipAction(clip);
+          action.play();
+          mixer.setTime(state.time);
+        }
+      }
+
+      const el = document.createElement('span');
+      el.textContent = state.label;
+      labels.appendChild(el);
+      state.el = el;
+      state.pos = new THREE.Vector3(x, 0.05, z);
+    });
+
+    function resize() {
+      renderer.setSize(innerWidth, innerHeight);
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+    }
+    addEventListener('resize', resize);
+    resize();
+
+    let angle = 0;
+    let showRig = true;
+    addEventListener('keydown', (e) => {
+      if (e.key === 's' || e.key === 'S') {
+        showRig = !showRig;
+        wrapper.traverse((o) => { if (o.name === 'skeleton') o.visible = showRig; });
+      }
+    });
+    const params = new URLSearchParams(location.search);
+    const camParam = params.get('cam');
+    const lookParam = params.get('look');
+
+    function frame() {
+      requestAnimationFrame(frame);
+      angle += 0.003;
+      wrapper.rotation.y = camParam ? 0 : Math.sin(angle) * 0.18;
+      if (camParam) {
+        camera.position.fromArray(camParam.split(',').map(Number));
+        camera.lookAt(...(lookParam || '0,1.5,0').split(',').map(Number));
+      } else {
+        camera.position.set(0, 2.9, 8.6);
+        camera.lookAt(0, 1.0, 0);
+      }
+      renderer.render(scene, camera);
+      for (const state of states) {
+        const p = state.pos.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), wrapper.rotation.y);
+        p.project(camera);
+        state.el.style.left = `${(p.x * 0.5 + 0.5) * innerWidth}px`;
+        state.el.style.top = `${(-p.y * 0.5 + 0.5) * innerHeight + 14}px`;
+      }
+    }
+    frame();
+  </script>
+</body>
+</html>

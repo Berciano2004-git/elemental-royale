@@ -1,0 +1,28 @@
+{
+  "name": "elemental-royale",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node server/index.js",
+    "build": "vite build",
+    "start": "node server/index.js --prod",
+    "test:match": "node scripts/test-match.mjs",
+    "test:end": "node scripts/test-end.mjs",
+    "rig:optimize": "node tools/optimize-wizard.mjs",
+    "rig": "node tools/rig-wizard.mjs",
+    "rig:audit": "node tools/audit-wizard.mjs"
+  },
+  "dependencies": {
+    "three": "^0.180.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "meshoptimizer": "^1.3.0",
+    "sharp": "^0.35.5",
+    "vite": "^7.1.0"
+  }
+}
