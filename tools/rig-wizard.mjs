@@ -1218,6 +1218,53 @@ console.log(`  manos: ${handComponents.size} piezas, ${handTriangleCount} trián
 const baseImage = json.images && json.images[0];
 const baseRaw = baseImage && baseImage.bufferView != null ? readImage(json, bin, baseImage) : null;
 
+// La textura original ya distingue piel de pelo: la piel está pintada en tonos
+// melocotón claros y saturados, y el pelo en castaño oscuro con brillos casi
+// blancos. Clasificar solo por cajas dejaba mechones del flequillo (delante de
+// la cara) y patillas laterales como piel, así que al teñir el pelo esas zonas
+// no cambiaban. Se vota el color del atlas en cada esquina del triángulo: es
+// piel si es claro y cálido; el castaño y los brillos fríos cuentan como pelo.
+const atlas = baseRaw
+  ? await sharp(baseRaw).raw().toBuffer({ resolveWithObject: true })
+  : null;
+const skinVotes = new Uint8Array(triangleCount);
+if (atlas) {
+  const { data, info } = atlas;
+  // En glTF la esquina (0,0) de las UV es la superior izquierda de la imagen.
+  const isSkinAt = (u, v) => {
+    const x = Math.round((u - Math.floor(u)) * (info.width - 1));
+    const y = Math.round((v - Math.floor(v)) * (info.height - 1));
+    const i = (y * info.width + x) * info.channels;
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    const saturation = max > 0 ? (max - min) / max : 0;
+    // Melocotón: luminancia alta y color poco grisáceo. Los brillos del pelo
+    // son claros pero casi neutros, y el castaño oscuro cae por luminancia.
+    return luma > 0.42 && saturation > 0.18;
+  };
+  for (let t = 0; t < triangleCount; t++) {
+    let votes = 0;
+    let uSum = 0;
+    let vSum = 0;
+    for (let corner = 0; corner < 3; corner++) {
+      const vertex = indices[t * 3 + corner];
+      const u = uvs[vertex * 2];
+      const v = uvs[vertex * 2 + 1];
+      uSum += u;
+      vSum += v;
+      if (isSkinAt(u, v)) votes++;
+    }
+    if (isSkinAt(uSum / 3, vSum / 3)) votes++;
+    skinVotes[t] = votes;
+  }
+}
+// Sin atlas se vuelve al reparto por cajas de siempre.
+const isSkinTriangle = (t) => (atlas ? skinVotes[t] >= 2 : true);
+
 // Orejas: quedan fuera de la caja de la cara, así que el reparto las metía en
 // el pelo y cambiaban de color con él. Son piezas sueltas en los laterales de
 // la cabeza; se reconocen por componente completa dentro de la caja de la oreja.
@@ -1262,50 +1309,53 @@ for (let t = 0; t < triangleCount; t++) {
   const cx = (positions[ia * 3] + positions[ib * 3] + positions[ic * 3]) / 3;
   const cy = (positions[ia * 3 + 1] + positions[ib * 3 + 1] + positions[ic * 3 + 1]) / 3;
   const cz = (positions[ia * 3 + 2] + positions[ib * 3 + 2] + positions[ic * 3 + 2]) / 3;
-  // La cara ocupa la parte delantera de la cabeza; el resto de la cabeza es
-  // pelo. Así el flequillo y la barba no se separan en manchas.
-  const faceBox = Math.abs(cx) < 0.13 && cz > 0.03 && cy > 1.40 && cy < 1.78;
-  // El cuello también es piel: sin esta caja heredaba el color del pelo.
-  const neckBox = Math.abs(cx) < 0.17 && cy > 1.32 && cy < 1.55 && Math.abs(cz) < 0.13;
-
   const bones = [ia, ib, ic].map((index) => boneDefs[dominantBone[index]].name);
   const headish = bones.includes('Head');
-  const handish = bones.some(
-    (name) => name === 'Hand_L' || name === 'Hand_R' || name === 'Neck'
-  );
+  const neckish = bones.includes('Neck');
+  const handish = bones.some((name) => name === 'Hand_L' || name === 'Hand_R');
 
-  // La ropa cubre todo el torso y los brazos, así que la textura solo decide
-  // entre cara y pelo dentro de la cabeza: el resto va por posición.
+  // El centro de la cara (ojos, nariz y boca) se protege por posición: ahí el
+  // atlas tiene blancos y oscuros que no son ni piel ni pelo. Los ojos están
+  // hundidos en la cuenca, así que su caja llega por detrás de la superficie y
+  // se queda antes del flequillo. El resto de la cabeza y el cuello lo decide
+  // el color pintado: castaño para flequillo, patillas y nuca; melocotón para
+  // cara, orejas y cuello.
+  const coreFace =
+    (Math.abs(cx) < 0.10 && cy > 1.48 && cy < 1.60 && cz > 0.02) ||
+    (Math.abs(cx) < 0.08 && cy >= 1.60 && cy < 1.715 && cz > -0.07 && cz < 0.105);
+
   let region;
-  if (handSkin[t] || earSkin[t] || handish) region = REGION.SKIN;
-  else if (headish) region = faceBox || neckBox ? REGION.SKIN : REGION.HAIR;
+  if (handSkin[t] || handish) region = REGION.SKIN;
+  else if (headish || neckish) {
+    region = coreFace || isSkinTriangle(t) ? REGION.SKIN : REGION.HAIR;
+  } else if (earSkin[t] && isSkinTriangle(t)) region = REGION.SKIN;
   else if (cy >= 0.8 && cy <= 1.66) region = REGION.ROBE;
-  else if (cy > 1.3) region = REGION.HAIR;
+  else if (cy > 1.3) region = isSkinTriangle(t) ? REGION.ROBE : REGION.HAIR;
   else region = REGION.DETAIL;
 
   triRegion[t] = region;
   regionCounts[region]++;
 }
 
-// Textura neutra del pelo: la original está pintada de castaño oscuro con las
-// luces y sombras horneadas, así que teñirla multiplicaba cualquier color
-// contra marrón y apenas se notaba. Se conserva el detalle (luminancia) y se
-// quita el pigmento; el color elegido en el taller pone el tono.
-let neutralHairJpeg = null;
-if (baseRaw) {
-  const decoded = await sharp(baseRaw).raw().toBuffer({ resolveWithObject: true });
-  const pixels = decoded.data;
-  const channels = decoded.info.channels;
+// Atlas neutro para las zonas teñibles (túnica, piel y pelo). El original
+// lleva el color y el sombreado horneados: al multiplicarlo por el color del
+// taller, el castaño del pelo apagaba los rubios y los blancos, y las zonas
+// oscuras de la tela ensuciaban la túnica. Se conserva el detalle (luminancia)
+// y se comprime el rango para que las sombras no se coman el color; el tono lo
+// pone el color elegido. «Detalle» mantiene el atlas original con sus botas y
+// su cinturón.
+let neutralAtlasJpeg = null;
+if (atlas) {
+  const pixels = Buffer.from(atlas.data);
+  const { width, height, channels } = atlas.info;
   for (let i = 0; i < pixels.length; i += channels) {
     const luma = (0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2]) / 255;
-    const value = Math.round(Math.min(1, 0.28 + 0.72 * Math.sqrt(luma)) * 255);
+    const value = Math.round(Math.min(1, 0.46 + 0.54 * Math.pow(luma, 1.12)) * 255);
     pixels[i] = value;
     pixels[i + 1] = value;
     pixels[i + 2] = value;
   }
-  neutralHairJpeg = await sharp(pixels, {
-    raw: { width: decoded.info.width, height: decoded.info.height, channels },
-  })
+  neutralAtlasJpeg = await sharp(pixels, { raw: { width, height, channels } })
     .jpeg({ quality: 92, chromaSubsampling: '4:4:4' })
     .toBuffer();
 }
@@ -1367,6 +1417,7 @@ function addAccessor(array, componentType, type, count, target, withBounds = fal
 }
 
 // Una primitiva por región, compartiendo texturas y esqueleto.
+const TINTED_MATERIALS = new Set(['Tunica', 'Piel', 'Pelo']);
 const baseMaterial = json.materials && json.materials[0]
   ? JSON.parse(JSON.stringify(json.materials[0]))
   : { pbrMetallicRoughness: {} };
@@ -1469,16 +1520,16 @@ const images = (json.images || []).map((image) => {
   return { ...image, bufferView: viewIndex, uri: undefined };
 });
 const textures = (json.textures || []).map((texture) => ({ ...texture }));
-if (neutralHairJpeg) {
-  const viewIndex = addView(neutralHairJpeg, null);
+if (neutralAtlasJpeg) {
+  const viewIndex = addView(neutralAtlasJpeg, null);
   images.push({ mimeType: 'image/jpeg', bufferView: viewIndex });
   const textureIndex = textures.length;
   textures.push({ ...(textures[0] || { sampler: 0 }), source: images.length - 1 });
-  const hairMaterial = materials.find((material) => material.name === 'Pelo');
-  if (hairMaterial) {
-    hairMaterial.pbrMetallicRoughness = hairMaterial.pbrMetallicRoughness || {};
-    hairMaterial.pbrMetallicRoughness.baseColorTexture = {
-      ...(hairMaterial.pbrMetallicRoughness.baseColorTexture || {}),
+  for (const material of materials) {
+    if (!TINTED_MATERIALS.has(material.name)) continue;
+    material.pbrMetallicRoughness = material.pbrMetallicRoughness || {};
+    material.pbrMetallicRoughness.baseColorTexture = {
+      ...(material.pbrMetallicRoughness.baseColorTexture || {}),
       index: textureIndex,
     };
   }

@@ -199,11 +199,14 @@ ciclos y desplazamiento implícito de cada clip.
 
 **Teñido**: la malla se divide en cuatro primitivas —`Tunica`, `Piel`, `Pelo` y `Detalle`—
 para que el taller pueda recolorear la ropa, la piel y el pelo sin tocar el pantalón ni las
-botas. Las manos y las orejas se detectan por componente (la palma queda dominada por el
-antebrazo y las orejas fuera de la caja de la cara) y se asignan a `Piel`, no a la túnica ni
-al pelo. `Pelo` usa una copia neutra de la textura: conserva luces y sombras del mechón pero
-quita el castaño horneado, así el color elegido manda de verdad. En el cliente cada mago
-clona materiales y geometría de esqueleto con `SkeletonUtils.clone`.
+botas. Las manos se detectan por componente (la palma queda dominada por el antebrazo) y se
+asignan a `Piel`, no a la túnica. En la cabeza el reparto piel/pelo lo decide el color
+pintado en el atlas —melocotón para piel, castaño y brillos fríos para pelo— votado en las
+esquinas de cada triángulo, con una caja de protección para ojos, nariz y boca. Así el
+flequillo y las patillas cambian con el pelo y el cuello se queda en piel. `Tunica`, `Piel`
+y `Pelo` comparten una copia neutra del atlas: conserva el detalle y comprime el sombreado
+horneado para que el color elegido mande; `Detalle` mantiene el atlas original. En el
+cliente cada mago clona materiales y geometría de esqueleto con `SkeletonUtils.clone`.
 
 **En el juego** (`src/three/wizard.js`): el gorro se cuelga del hueso `Head` y el bastón del
 hueso `Hand_L`. La empuñadura se calcula una sola vez respecto a la pose de reposo, de modo
