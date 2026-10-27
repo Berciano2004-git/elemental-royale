@@ -110,6 +110,27 @@ function applyAdminValues(values) {
   scheduleAdminTune();
 }
 
+// El taller y el panel de administración comparten los mismos colores. Si al
+// elegir un tono solo se reconstruía la vista previa, el panel volvía a
+// empujar su copia antigua y el pelo (o la túnica) recuperaba el color
+// anterior. Se sincronizan los dos lados antes de repintar.
+function lookColorValues(look) {
+  return {
+    'look.robe': look.robe,
+    'look.hatColor': look.hatColor,
+    'look.staffColor': look.staffColor,
+    'look.skin': look.skin,
+    'look.hair': look.hair,
+    'look.magic': look.magic,
+  };
+}
+
+function syncLookColors(look) {
+  const colors = lookColorValues(look);
+  admin?.setExternal(colors);
+  applyAdminValues({ ...admin.values, ...colors });
+}
+
 function adminTunePayload() {
   const v = admin.values;
   return {
@@ -189,6 +210,7 @@ function mountPreviewForScreen(screen) {
 ui.init({
   onScreen: (screen) => mountPreviewForScreen(screen),
   onLook: (look) => {
+    syncLookColors(look);
     preview.setLook(look);
     if (joined && !inMatch) {
       clearTimeout(lookTimer);

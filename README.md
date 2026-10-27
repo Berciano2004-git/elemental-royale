@@ -115,8 +115,9 @@ En el **Taller arcano** puedes cambiar en tiempo real:
   cristal.
 - Seis bastones: madera, cristal, fuego, hielo, raíces y oscuro.
 - Doce colores de túnica, diez de sombrero y ocho de bastón, además de detalles mágicos,
-  cabello y piel. La túnica tiñe la ropa del modelo; el pelo tiñe solo el cabello (con su
-  textura neutra para que el color se note) y la piel tiñe cara, cuello, orejas y manos.
+  cabello y piel. La túnica tiñe la ropa del modelo, el pelo tiñe el cabello completo
+  (flequillo, patillas y nuca) y la piel tiñe cara, cuello, orejas y manos. Las tres zonas
+  usan un atlas neutro para que el color elegido se note de verdad.
 - Nombre del mago y botón de apariencia aleatoria.
 
 La apariencia y el nombre se guardan en `localStorage` y se aplican en las siguientes partidas.
