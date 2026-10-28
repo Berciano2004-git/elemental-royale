@@ -3,33 +3,28 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 
 const MODEL_URL = `${import.meta.env.BASE_URL}models/mago.glb`;
 const MODEL_SCALE = 1.62;
-const HAT_SCALE = 0.33;
+const HAT_SCALE = 0.35;
 const STAFF_SCALE = 0.62;
 const STAFF_GRIP = 1.32;
 
 const GEO = {
-  brim: new THREE.CylinderGeometry(0.8, 0.86, 0.09, 18),
-  band: new THREE.TorusGeometry(0.5, 0.055, 6, 20),
-  cone: new THREE.ConeGeometry(0.5, 1.2, 12),
-  horn: new THREE.ConeGeometry(0.13, 0.7, 6),
-  leaf: new THREE.ConeGeometry(0.2, 0.85, 4),
   shaft: new THREE.CylinderGeometry(0.06, 0.075, 2.85, 6),
   smallCyl: new THREE.CylinderGeometry(0.05, 0.05, 0.5, 5),
   orb: new THREE.OctahedronGeometry(0.26, 0),
   glow: new THREE.SphereGeometry(0.16, 8, 6),
   shadow: new THREE.CircleGeometry(1.15, 24),
   shard: new THREE.OctahedronGeometry(0.12, 0),
-  crownRing: new THREE.TorusGeometry(0.5, 0.045, 6, 22),
-  head: new THREE.SphereGeometry(0.5, 14, 10),
-  tuft: new THREE.SphereGeometry(0.2, 8, 6),
 };
 
 // Materiales por región de la malla que se tiñen con la apariencia elegida.
 const TINTS = { Tunica: 'robe', Piel: 'skin', Pelo: 'hair' };
+// Tono al que se acerca el cuero de los gorros cuando se tiñe.
+const LEATHER_TONE = new THREE.Color('#4a3322');
 
 let glowTexture = null;
 function getGlowTexture() {
@@ -50,6 +45,461 @@ function getGlowTexture() {
 
 function lambert(color, extra = {}) {
   return new THREE.MeshLambertMaterial({ color, flatShading: true, ...extra });
+}
+
+// --------------------------------------------------------------- gorros
+// Los gorros salen de la misma familia de materiales (fieltro teñible, cuero
+// oscuro, latón envejecido y pespuntes) para que parezcan piezas del mismo
+// taller. La textura es un gris claro con grano: el color del taller la tiñe y
+// conserva las fibras y el desgaste.
+let hatTexture = null;
+function getHatTexture() {
+  if (hatTexture) return hatTexture;
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#dad5cc';
+  ctx.fillRect(0, 0, size, size);
+  // Trama diagonal del fieltro: es lo que hace que la tela se lea como tela.
+  ctx.lineWidth = 2;
+  for (let i = -size; i < size * 2; i += 9) {
+    ctx.strokeStyle = i % 18 ? 'rgba(255,255,255,0.12)' : 'rgba(58,48,38,0.1)';
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i - size, size);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 0.06;
+  for (let y = 0; y < size; y += 4) {
+    ctx.fillStyle = y % 8 ? '#ffffff' : '#000000';
+    ctx.fillRect(0, y, size, 1);
+  }
+  ctx.globalAlpha = 1;
+  for (let i = 0; i < 1400; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const length = 5 + Math.random() * 13;
+    const angle = (Math.random() - 0.5) * 0.6;
+    const light = Math.random() < 0.5;
+    ctx.lineWidth = 1 + Math.random();
+    ctx.strokeStyle = `rgba(${light ? 255 : 40},${light ? 250 : 36},${light ? 240 : 30},${0.05 + Math.random() * 0.07})`;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length);
+    ctx.stroke();
+  }
+  for (let i = 0; i < 22; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const radius = 26 + Math.random() * 70;
+    const dark = Math.random() < 0.65;
+    const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    gradient.addColorStop(0, `rgba(${dark ? 50 : 255},${dark ? 44 : 250},${dark ? 36 : 240},${dark ? 0.1 : 0.06})`);
+    gradient.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  }
+  hatTexture = new THREE.CanvasTexture(canvas);
+  hatTexture.colorSpace = THREE.SRGBColorSpace;
+  hatTexture.wrapS = THREE.RepeatWrapping;
+  hatTexture.wrapT = THREE.RepeatWrapping;
+  hatTexture.repeat.set(1, 1);
+  hatTexture.anisotropy = 4;
+  return hatTexture;
+}
+
+// Cuero curtido: grano fino, manchas de curtido y grietas cortas. Se tiñe con
+// el color del taller igual que el fieltro, así que conserva el tono elegido.
+let leatherTexture = null;
+function getLeatherTexture() {
+  if (leatherTexture) return leatherTexture;
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#d4cabb';
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 7000; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const radius = 2 + Math.random() * 4;
+    ctx.fillStyle = Math.random() < 0.5 ? 'rgba(255,250,240,0.13)' : 'rgba(36,24,14,0.15)';
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  for (let i = 0; i < 26; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const radius = 30 + Math.random() * 70;
+    const dark = Math.random() < 0.6;
+    const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    gradient.addColorStop(0, `rgba(${dark ? 42 : 255},${dark ? 30 : 246},${dark ? 18 : 232},${dark ? 0.15 : 0.08})`);
+    gradient.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  }
+  ctx.strokeStyle = 'rgba(30,20,12,0.2)';
+  for (let i = 0; i < 90; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const length = 4 + Math.random() * 11;
+    const angle = Math.random() * Math.PI;
+    ctx.lineWidth = 0.6 + Math.random() * 0.6;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length);
+    ctx.stroke();
+  }
+  leatherTexture = new THREE.CanvasTexture(canvas);
+  leatherTexture.colorSpace = THREE.SRGBColorSpace;
+  leatherTexture.wrapS = THREE.RepeatWrapping;
+  leatherTexture.wrapT = THREE.RepeatWrapping;
+  leatherTexture.repeat.set(2, 2);
+  leatherTexture.anisotropy = 4;
+  return leatherTexture;
+}
+
+function placed(geometry, { x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1 } = {}) {
+  const matrix = new THREE.Matrix4().compose(
+    new THREE.Vector3(x, y, z),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)),
+    new THREE.Vector3(sx, sy, sz)
+  );
+  geometry.applyMatrix4(matrix);
+  return geometry;
+}
+
+// Unidad de los gorros: la cabeza mide 0,36 de radio y la coronilla queda 0,19
+// por encima de la línea de la frente, que es el origen de cada pieza.
+
+// Cono curvado: la copa de un sombrero de fieltro no es un cono recto, la
+// punta cae hacia un lado. Se construye con anillos sobre una curva y radio
+// decreciente. `belly` controla lo llena que es la copa (0,7 = abombada).
+function bentConeGeometry({ height, radius, tip = 0.04, bendX = 0, bendZ = 0, segments = 12, radial = 24, belly = 0.8 }) {
+  const curve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(bendX * 0.12, height * 0.32, bendZ * 0.12),
+    new THREE.Vector3(bendX * 0.5, height * 0.64, bendZ * 0.5),
+    new THREE.Vector3(bendX, height, bendZ),
+  ]);
+  const frames = curve.computeFrenetFrames(segments, false);
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const center = curve.getPointAt(t);
+    const normal = frames.normals[i];
+    const binormal = frames.binormals[i];
+    const r = Math.max(tip, radius * Math.pow(1 - t, belly) + tip * (1 - t));
+    for (let j = 0; j <= radial; j++) {
+      const angle = (j / radial) * Math.PI * 2;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      positions.push(
+        center.x + (normal.x * cos + binormal.x * sin) * r,
+        center.y + (normal.y * cos + binormal.y * sin) * r,
+        center.z + (normal.z * cos + binormal.z * sin) * r
+      );
+      uvs.push(j / radial, t);
+    }
+  }
+  for (let i = 0; i < segments; i++) {
+    for (let j = 0; j < radial; j++) {
+      const a = i * (radial + 1) + j;
+      const b = a + radial + 1;
+      indices.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+// Ala con grosor, caída y ondulación de fieltro. El borde sube ligeramente,
+// como el de un sombrero de fieltro gastado.
+function brimGeometry({ inner = 0.4, outer = 0.66, droop = 0.06, thickness = 0.03, wave = 0.025, radial = 40, phase = 0.4 }) {
+  const middle = inner + (outer - inner) * 0.55;
+  const points = [
+    new THREE.Vector2(inner, thickness * 0.35),
+    new THREE.Vector2(middle, thickness * 0.6),
+    new THREE.Vector2(outer, thickness * 0.2 - droop),
+    new THREE.Vector2(outer + thickness * 0.55, -droop + thickness * 0.28),
+    new THREE.Vector2(outer - thickness * 0.2, -droop - thickness * 0.72),
+    new THREE.Vector2(middle, -thickness * 0.85 - droop * 0.35),
+    new THREE.Vector2(inner, -thickness * 0.55),
+  ];
+  const geometry = new THREE.LatheGeometry(points, radial);
+  const position = geometry.attributes.position;
+  for (let i = 0; i < position.count; i++) {
+    const x = position.getX(i);
+    const z = position.getZ(i);
+    const r = Math.hypot(x, z);
+    const k = Math.min(1, Math.max(0, (r - inner) / (outer - inner)));
+    const angle = Math.atan2(x, z);
+    position.setY(i, position.getY(i) + Math.sin(angle * 3 + phase) * wave * k * k);
+  }
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+// Casquete que sigue el cráneo: sirve de base al casco, a la diadema y a los
+// gorros. Los pliegues laterales se apagan en el borde para que asiente.
+function capShellGeometry({ radius = 0.4, height = 0.26, radial = 30, rings = 10, folds = 0, foldAmp = 0, phase = 0 }) {
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+  for (let i = 0; i <= rings; i++) {
+    const t = i / rings;
+    const theta = t * Math.PI * 0.5;
+    const y = height * Math.sin(theta);
+    for (let j = 0; j <= radial; j++) {
+      const phi = (j / radial) * Math.PI * 2;
+      const fold = foldAmp * Math.sin(phi * folds + phase) * Math.sin(Math.PI * t);
+      const r = (radius + fold) * Math.cos(theta);
+      positions.push(Math.sin(phi) * r, y, Math.cos(phi) * r);
+      uvs.push(j / radial, t);
+    }
+  }
+  for (let i = 0; i < rings; i++) {
+    for (let j = 0; j < radial; j++) {
+      const a = i * (radial + 1) + j;
+      const b = a + radial + 1;
+      indices.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+// La abertura de la capucha se cierra en la frente y bajo la barbilla: es una
+// elipse, no una ranura vertical. `gapAt` da la anchura de la abertura en cada
+// altura de la calota.
+function hoodGapAt(t, gap) {
+  // La calota cubre la frente hasta la ceja; la abertura empieza ahí y sigue
+  // abierta hasta el dobladillo.
+  return gap * THREE.MathUtils.smoothstep(t, 0.55, 0.72);
+}
+
+// Capucha: calota con abertura facial elíptica y vuelo en la nuca.
+function hoodShellGeometry({
+  radius = 0.43, height = 0.245, gap = 2, flare = 0.12, radial = 34, rings = 16,
+  folds = 0, foldAmp = 0, phase = 0,
+}) {
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+  const thetaMax = Math.PI * 0.78;
+  for (let i = 0; i <= rings; i++) {
+    const t = i / rings;
+    const theta = t * thetaMax;
+    const sinTheta = Math.sin(theta);
+    const cosTheta = Math.cos(theta);
+    const width = hoodGapAt(t, gap);
+    for (let j = 0; j <= radial; j++) {
+      const phi = width / 2 + (j / radial) * (Math.PI * 2 - width);
+      const fold = foldAmp * Math.sin(phi * folds + phase) * Math.sin(Math.PI * t);
+      const r = radius * sinTheta * (1 + Math.max(0, -cosTheta) * flare) + fold;
+      positions.push(Math.sin(phi) * r, height * cosTheta, Math.cos(phi) * r);
+      uvs.push(j / radial, t);
+    }
+  }
+  for (let i = 0; i < rings; i++) {
+    for (let j = 0; j < radial; j++) {
+      const a = i * (radial + 1) + j;
+      const b = a + radial + 1;
+      indices.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+// Borde inferior de la capucha, para rematarlo con un dobladillo.
+function hoodHemPoints({ radius, height, gap, flare = 0, radial = 34 }) {
+  const theta = Math.PI * 0.78;
+  const width = hoodGapAt(1, gap);
+  const sinTheta = Math.sin(theta);
+  const cosTheta = Math.cos(theta);
+  const r = radius * sinTheta * (1 + Math.max(0, -cosTheta) * flare);
+  const points = [];
+  for (let j = 0; j <= radial; j++) {
+    const phi = width / 2 + (j / radial) * (Math.PI * 2 - width);
+    points.push(new THREE.Vector3(Math.sin(phi) * r, height * cosTheta, Math.cos(phi) * r));
+  }
+  return points;
+}
+
+// Borde de la abertura facial, para pasarlo por un dobladillo o pespunte.
+function hoodRimPoints({ radius, height, gap, rings = 16, side = 1 }) {
+  const points = [];
+  const thetaMax = Math.PI * 0.78;
+  for (let i = 0; i <= rings; i++) {
+    const t = i / rings;
+    const theta = t * thetaMax;
+    const width = hoodGapAt(t, gap) / 2;
+    const phi = side > 0 ? width : Math.PI * 2 - width;
+    points.push(new THREE.Vector3(
+      Math.sin(phi) * Math.sin(theta) * radius,
+      height * Math.cos(theta),
+      Math.cos(phi) * Math.sin(theta) * radius
+    ));
+  }
+  return points;
+}
+
+// Banda cónica: carrilleras, guardanuca, ribetes. `length` menor que 2π deja
+// libre el rostro.
+function bandGeometry({ radiusTop = 0.4, radiusBottom = 0.46, top = 0, bottom = -0.2, start = 0, length = Math.PI * 2, radial = 30, rings = 3, drop = 0 }) {
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+  for (let i = 0; i <= rings; i++) {
+    const t = i / rings;
+    const r = radiusTop + (radiusBottom - radiusTop) * t;
+    for (let j = 0; j <= radial; j++) {
+      const phi = start + (j / radial) * length;
+      // `drop` hunde el borde en la nuca y lo sube hacia la cara.
+      const y = top + (bottom - top) * t - drop * t * Math.cos(phi);
+      positions.push(Math.sin(phi) * r, y, Math.cos(phi) * r);
+      uvs.push(j / radial, t);
+    }
+  }
+  for (let i = 0; i < rings; i++) {
+    for (let j = 0; j < radial; j++) {
+      const a = i * (radial + 1) + j;
+      const b = a + radial + 1;
+      indices.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+// Arruga radial suave sobre una pieza ya construida: pliegues de paño y
+// abolladuras de fieltro sin tocar la silueta.
+function addFolds(geometry, { count = 7, amp = 0.012, phase = 0, from = 0, to = 0.3 } = {}) {
+  const position = geometry.attributes.position;
+  const span = Math.max(0.001, to - from);
+  for (let i = 0; i < position.count; i++) {
+    const x = position.getX(i);
+    const z = position.getZ(i);
+    const y = position.getY(i);
+    if (y < from || y > to) continue;
+    const r = Math.hypot(x, z);
+    if (r < 0.02) continue;
+    const ramp = Math.sin(Math.PI * Math.min(1, Math.max(0, (y - from) / span)));
+    const delta = Math.sin(Math.atan2(x, z) * count + phase) * amp * ramp;
+    const k = (r + delta) / r;
+    position.setX(i, x * k);
+    position.setZ(i, z * k);
+  }
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+// Sombreado horneado en los vértices: caras que miran al suelo (el interior de
+// las alas) más oscuras y un desgaste irregular. Es lo que separa una pieza de
+// fieltro de un primitivo liso.
+function shadeHatGeometry(geometry, { weather = 0.14, underside = 0.26 } = {}) {
+  const position = geometry.attributes.position;
+  const normal = geometry.attributes.normal;
+  const colors = new Float32Array(position.count * 3);
+  for (let i = 0; i < position.count; i++) {
+    const x = position.getX(i);
+    const y = position.getY(i);
+    const z = position.getZ(i);
+    const ny = normal ? normal.getY(i) : 0.4;
+    const hash = Math.sin(x * 41.7 + y * 97.3 + z * 63.1) * 43758.5453;
+    const noise = hash - Math.floor(hash) - 0.5;
+    let shade = 1 - underside * Math.max(0, -ny);
+    shade *= 1 + noise * weather;
+    shade *= 0.94 + 0.06 * Math.min(1, Math.max(0, (y + 0.22) / 0.34));
+    colors[i * 3] = shade;
+    colors[i * 3 + 1] = shade;
+    colors[i * 3 + 2] = shade;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geometry;
+}
+
+// Hondón de fieltro: empuja una zona de la copa hacia dentro para que la pieza
+// parezca moldeada a mano y no torneada.
+function dentGeometry(geometry, { x = 0, y = 0.4, z = 0, radius = 0.24, depth = 0.05 } = {}) {
+  const position = geometry.attributes.position;
+  for (let i = 0; i < position.count; i++) {
+    const px = position.getX(i);
+    const py = position.getY(i);
+    const pz = position.getZ(i);
+    const distance = Math.hypot(px - x, py - y, pz - z);
+    if (distance > radius) continue;
+    const falloff = Math.pow(Math.cos((distance / radius) * Math.PI * 0.5), 2);
+    const r = Math.hypot(px, pz);
+    if (r < 0.001) continue;
+    const k = (r - depth * falloff) / r;
+    position.setX(i, px * k);
+    position.setZ(i, pz * k);
+  }
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function tubeFromPoints(points, radius, radial = 4, closed = false) {
+  const curve = new THREE.CatmullRomCurve3(points, closed, 'catmullrom', 0.25);
+  return new THREE.TubeGeometry(curve, Math.max(12, points.length * 2), radius, radial, closed);
+}
+
+function ringPoints(radius, y, count = 40) {
+  const points = [];
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2;
+    points.push(new THREE.Vector3(Math.sin(angle) * radius, y, Math.cos(angle) * radius));
+  }
+  return points;
+}
+
+function stitchRing(list, { radius, y, count, size = 0.018 }) {
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2;
+    const stitch = new THREE.BoxGeometry(size * 2.4, size * 0.55, size);
+    placed(stitch, { x: Math.sin(angle) * radius, y, z: Math.cos(angle) * radius, ry: angle });
+    list.push(stitch);
+  }
+}
+
+// Pespuntes a lo largo de una costura o un dobladillo, orientados con la curva.
+function stitchAlong(list, points, { count = 18, size = 0.011, closed = false } = {}) {
+  const curve = new THREE.CatmullRomCurve3(points, closed, 'catmullrom', 0.25);
+  const spaced = curve.getSpacedPoints(Math.max(2, count));
+  const tangent = new THREE.Vector3();
+  for (let i = 0; i < spaced.length - 1; i++) {
+    const point = spaced[i];
+    curve.getTangentAt(i / (spaced.length - 1), tangent);
+    const stitch = new THREE.BoxGeometry(size * 2.3, size * 0.5, size);
+    const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), tangent);
+    stitch.applyQuaternion(quaternion);
+    stitch.translate(point.x, point.y, point.z);
+    list.push(stitch);
+  }
 }
 
 let assetPromise = null;
@@ -91,11 +541,83 @@ export function createWizard(look) {
   group.add(rig);
   const materials = [];
 
-  const hatMat = lambert(look.hatColor);
+  const hatColor = percentToHex(look.hatColor);
+  const hatMat = new THREE.MeshStandardMaterial({
+    color: hatColor,
+    map: getHatTexture(),
+    bumpMap: getHatTexture(),
+    bumpScale: 0.06,
+    roughness: 0.97,
+    metalness: 0,
+    vertexColors: true,
+    flatShading: true,
+    side: THREE.DoubleSide,
+  });
+  // Cuero curtido: se tiñe con el color del taller, así que el tono elegido se
+  // nota, pero la pieza se lee como cuero y no como plástico.
+  const hatLeatherMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(hatColor).lerp(LEATHER_TONE, 0.34),
+    map: getLeatherTexture(),
+    bumpMap: getLeatherTexture(),
+    bumpScale: 0.07,
+    roughness: 0.82,
+    metalness: 0.03,
+    vertexColors: true,
+    flatShading: true,
+    side: THREE.DoubleSide,
+  });
+  // Cintas y ribetes: el mismo cuero, más oscuro, para que la silueta tenga
+  // contraste aunque el gorro sea claro.
+  const hatStrapMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(hatColor).lerp(LEATHER_TONE, 0.58).multiplyScalar(0.9),
+    map: getLeatherTexture(),
+    bumpMap: getLeatherTexture(),
+    bumpScale: 0.045,
+    roughness: 0.78,
+    metalness: 0.04,
+    vertexColors: true,
+    flatShading: true,
+    side: THREE.DoubleSide,
+  });
+  // Tela interior que asoma en los bordes: da grosor a las alas.
+  const hatLiningMat = new THREE.MeshStandardMaterial({
+    color: '#c2b294',
+    // Un poco de emisión simula la luz que rebota dentro de la capucha; sin
+    // ella el forro se lee como un agujero negro.
+    emissive: new THREE.Color('#3d3527'),
+    emissiveIntensity: 0.6,
+    roughness: 0.95,
+    metalness: 0,
+    flatShading: true,
+    side: THREE.DoubleSide,
+  });
+  // Sin mapa de entorno, un metal muy metálico se ve negro: se queda en un
+  // latón viejo con algo de difusión.
+  const hatMetalMat = new THREE.MeshStandardMaterial({
+    color: '#a8874f',
+    roughness: 0.5,
+    metalness: 0.22,
+    flatShading: true,
+  });
+  const hatStitchMat = new THREE.MeshStandardMaterial({
+    color: '#cdb98f',
+    roughness: 0.82,
+    metalness: 0.02,
+    flatShading: true,
+  });
+  // Pelo de la vuelta del cuero: no se tiñe, es el remate natural de la piel.
+  const hatFurMat = new THREE.MeshStandardMaterial({
+    color: '#a18a63',
+    roughness: 0.95,
+    metalness: 0,
+    vertexColors: true,
+    flatShading: true,
+    side: THREE.DoubleSide,
+  });
   const staffMat = lambert(look.staffColor);
   const magicMat = lambert(look.magic, { emissive: new THREE.Color(look.magic), emissiveIntensity: 0.4 });
   const darkMat = lambert('#1a1626');
-  materials.push(hatMat, staffMat, magicMat, darkMat);
+  materials.push(hatMat, hatLeatherMat, hatStrapMat, hatLiningMat, hatMetalMat, hatStitchMat, hatFurMat, staffMat, magicMat, darkMat);
 
   const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.32, depthWrite: false });
   const shadow = new THREE.Mesh(GEO.shadow, shadowMat);
@@ -105,121 +627,299 @@ export function createWizard(look) {
 
   // ------------------------------------------------------------------ gorro
   const hatGroup = new THREE.Group();
+  hatGroup.name = 'Gorro';
   hatGroup.scale.setScalar(HAT_SCALE);
   const hatPivot = new THREE.Group();
-  hatPivot.position.y = 0.22;
+  hatPivot.name = 'GorroPivote';
+  // La frente queda a 0,58 del mentón y la coronilla a 0,86: el borde de los
+  // gorros apoya en la frente y la copa tiene que subir 0,35 para taparla.
+  hatPivot.position.y = 0.205;
   hatPivot.add(hatGroup);
-  const crownShards = [];
-  let hatTopGlow = null;
-  let hatGlowMat = null;
-  let hoodMat = null;
+
+  // Los seis gorros son piezas del mismo taller: fieltro teñible, cuero
+  // curtido, ribetes cosidos y herrajes de latón. Cambian la forma, no el
+  // lenguaje, y todas envuelven el cráneo en vez de posarse encima.
+  const hatFelt = [];
+  const hatLeather = [];
+  const hatStrap = [];
+  const hatLining = [];
+  const hatMetal = [];
+  const hatStitches = [];
+  const hatFur = [];
+  const addHatPart = (list, geometry, options) => list.push(placed(geometry, options));
+  // Cinta de cuero con sus dos ribetes cosidos.
+  const addStrapBand = (radius, height, y, tube = 0.007) => {
+    addHatPart(hatStrap, new THREE.CylinderGeometry(radius, radius * 1.008, height, 32, 1, true), { y });
+    addHatPart(hatStrap, new THREE.TorusGeometry(radius + 0.001, tube, 4, 40), { y: y + height / 2, rx: Math.PI / 2 });
+    addHatPart(hatStrap, new THREE.TorusGeometry(radius + 0.001, tube, 4, 40), { y: y - height / 2, rx: Math.PI / 2 });
+  };
+  const addBuckle = (y, z, width = 0.08) => {
+    const height = width * 0.72;
+    const bar = 0.013;
+    addHatPart(hatMetal, new THREE.BoxGeometry(width, bar, 0.02), { y: y + height / 2, z });
+    addHatPart(hatMetal, new THREE.BoxGeometry(width, bar, 0.02), { y: y - height / 2, z });
+    addHatPart(hatMetal, new THREE.BoxGeometry(bar, height, 0.02), { x: -width / 2, y, z });
+    addHatPart(hatMetal, new THREE.BoxGeometry(bar, height, 0.02), { x: width / 2, y, z });
+  };
+  // Borde enrollado del ala: le da grosor y remata la silueta.
+  const addBrimEdge = (outer, y, tube = 0.016) => {
+    addHatPart(hatStrap, new THREE.TorusGeometry(outer, tube, 5, 48), { y, rx: Math.PI / 2 });
+  };
+  // Pelo de la vuelta del rostro: mechones cónicos repartidos por el borde.
+  const addFurAlong = (points, count = 34, length = 0.036, radius = 0.012) => {
+    const curve = new THREE.CatmullRomCurve3(points);
+    const spaced = curve.getSpacedPoints(count);
+    for (let i = 0; i < spaced.length; i++) {
+      const point = spaced[i];
+      const outward = new THREE.Vector3(point.x, 0.1, point.z).normalize();
+      outward.x += (((i * 0.618) % 1) - 0.5) * 0.35;
+      outward.z += (((i * 0.37) % 1) - 0.5) * 0.35;
+      outward.y += 0.06 + ((i * 0.29) % 1) * 0.16;
+      outward.normalize();
+      const height = length * (0.7 + ((i * 0.53) % 1) * 0.6);
+      const spike = new THREE.ConeGeometry(radius * (0.85 + ((i * 0.41) % 1) * 0.45), height, 5);
+      spike.translate(0, height / 2, 0);
+      spike.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), outward));
+      spike.translate(point.x, point.y, point.z);
+      hatFur.push(spike);
+    }
+  };
+  // Pespunte del ala siguiendo su ondulación.
+  const brimStitches = (inner, outer, radius, y, wave, phase = 0.4, count = 44) => {
+    const points = [];
+    const k = Math.min(1, Math.max(0, (radius - inner) / (outer - inner)));
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2;
+      points.push(new THREE.Vector3(
+        Math.sin(angle) * radius,
+        y + Math.sin(angle * 3 + phase) * wave * k * k,
+        Math.cos(angle) * radius
+      ));
+    }
+    return points;
+  };
 
   switch (look.hat) {
     case 'wide': {
-      const brim = new THREE.Mesh(new THREE.CylinderGeometry(1.16, 1.22, 0.08, 20), hatMat);
-      hatGroup.add(brim);
-      const crown = new THREE.Mesh(new THREE.ConeGeometry(0.52, 0.9, 12), hatMat);
-      crown.position.y = 0.47;
-      hatGroup.add(crown);
-      const band = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.05, 6, 20), magicMat);
-      band.rotation.x = Math.PI / 2;
-      band.position.y = 0.08;
-      hatGroup.add(band);
+      // Sombrero de caminante: ala ancha y caída, copa baja con el hundimiento
+      // del fieltro y cordón de cuero anudado al lado.
+      addHatPart(hatFelt, brimGeometry({ inner: 0.42, outer: 0.685, droop: 0.1, thickness: 0.04, wave: 0.058 }), { y: 0 });
+      addBrimEdge(0.69, -0.108, 0.022);
+      addHatPart(hatLining, new THREE.TorusGeometry(0.423, 0.01, 4, 40), { y: -0.014, rx: Math.PI / 2 });
+      stitchAlong(hatStitches, brimStitches(0.42, 0.685, 0.646, -0.084, 0.048, 0.4, 52), { count: 52, size: 0.008, closed: true });
+      const crown = new THREE.LatheGeometry([
+        new THREE.Vector2(0.422, 0),
+        new THREE.Vector2(0.424, 0.12),
+        new THREE.Vector2(0.405, 0.24),
+        new THREE.Vector2(0.335, 0.34),
+        new THREE.Vector2(0.205, 0.392),
+        new THREE.Vector2(0.075, 0.35),
+        new THREE.Vector2(0, 0.328),
+      ], 36);
+      addFolds(crown, { count: 9, amp: 0.012, phase: 0.5, from: 0.03, to: 0.36 });
+      dentGeometry(crown, { x: 0, y: 0.33, z: 0.24, radius: 0.2, depth: 0.04 });
+      addHatPart(hatFelt, crown, {});
+      // Cordón con nudo y dos cabos colgando por delante.
+      addHatPart(hatStrap, new THREE.TorusGeometry(0.428, 0.019, 5, 44), { y: 0.078, rx: Math.PI / 2 });
+      addHatPart(hatStrap, new THREE.SphereGeometry(0.028, 8, 6), { x: -0.285, y: 0.072, z: 0.315 });
+      addHatPart(hatStrap, new THREE.CylinderGeometry(0.011, 0.015, 0.2, 5), { x: -0.315, y: -0.02, z: 0.33, rz: 0.16, rx: 0.1 });
+      addHatPart(hatStrap, new THREE.CylinderGeometry(0.009, 0.012, 0.16, 5), { x: -0.245, y: -0.014, z: 0.352, rz: -0.22, rx: 0.12 });
+      stitchRing(hatStitches, { radius: 0.425, y: 0.045, count: 30, size: 0.008 });
       break;
     }
     case 'horns': {
-      const cap = new THREE.Mesh(GEO.head, hatMat);
-      cap.scale.set(1.08, 0.62, 1.08);
-      cap.position.y = 0.12;
-      hatGroup.add(cap);
-      for (const side of [-1, 1]) {
-        const horn = new THREE.Mesh(GEO.horn, darkMat);
-        horn.position.set(side * 0.38, 0.48, 0);
-        horn.rotation.z = side * -0.55;
-        hatGroup.add(horn);
-        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.22, 5), magicMat);
-        tip.position.set(side * 0.57, 0.79, 0);
-        tip.rotation.z = side * -0.55;
-        hatGroup.add(tip);
+      // Casco de cuero hervido: calota de cuatro gajos con costura en relieve,
+      // cinta de la frente con remaches y guardanuca con carrilleras. Sin
+      // cuernos: es una pieza de armería, no un disfraz.
+      addHatPart(hatLeather, new THREE.LatheGeometry([
+        new THREE.Vector2(0.422, 0),
+        new THREE.Vector2(0.425, 0.08),
+        new THREE.Vector2(0.41, 0.18),
+        new THREE.Vector2(0.355, 0.27),
+        new THREE.Vector2(0.24, 0.34),
+        new THREE.Vector2(0, 0.405),
+      ], 32), {});
+      for (let i = 0; i < 4; i++) {
+        const phi = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        const seam = [];
+        for (let k = 0; k <= 7; k++) {
+          const t = k / 7;
+          const theta = t * Math.PI * 0.46;
+          const radius = 0.425 - t * 0.31;
+          seam.push(new THREE.Vector3(
+            Math.sin(phi) * radius,
+            0.004 + Math.sin(theta) * 0.39,
+            Math.cos(phi) * radius
+          ));
+        }
+        addHatPart(hatStrap, tubeFromPoints(seam, 0.015, 4), {});
+        stitchAlong(hatStitches, seam.map((p) => p.clone().multiplyScalar(1.01)), { count: 10, size: 0.008 });
       }
+      addStrapBand(0.43, 0.075, 0.026, 0.008);
+      for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2 + Math.PI / 8;
+        addHatPart(hatMetal, new THREE.SphereGeometry(0.014, 6, 4), {
+          x: Math.sin(angle) * 0.435,
+          y: 0.026,
+          z: Math.cos(angle) * 0.435,
+        });
+      }
+      // Una sola pieza de cuero para carrilleras y nuca, abierta en el rostro.
+      addHatPart(hatLeather, bandGeometry({
+        radiusTop: 0.425,
+        radiusBottom: 0.49,
+        top: -0.006,
+        bottom: -0.21,
+        start: 0.72,
+        length: Math.PI * 2 - 1.44,
+        radial: 36,
+        rings: 4,
+        drop: 0.055,
+      }), {});
+      const guardHem = [];
+      for (let i = 0; i <= 22; i++) {
+        const phi = 0.72 + (i / 22) * (Math.PI * 2 - 1.44);
+        guardHem.push(new THREE.Vector3(
+          Math.sin(phi) * 0.492,
+          -0.212 - 0.055 * Math.cos(phi),
+          Math.cos(phi) * 0.492
+        ));
+      }
+      addHatPart(hatStrap, tubeFromPoints(guardHem, 0.012, 4), {});
+      stitchAlong(hatStitches, guardHem, { count: 26, size: 0.008 });
+      addHatPart(hatMetal, new THREE.BoxGeometry(0.085, 0.1, 0.018), { y: 0.0, z: 0.428, rx: -0.06 });
       break;
     }
     case 'leaves': {
-      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.8, 0.14, 10), hatMat);
-      hatGroup.add(cap);
-      for (let i = 0; i < 7; i++) {
-        const angle = (i / 7) * Math.PI * 2;
-        const leaf = new THREE.Mesh(GEO.leaf, hatMat);
-        leaf.position.set(Math.cos(angle) * 0.38, 0.32, Math.sin(angle) * 0.38);
-        leaf.rotation.set(Math.cos(angle) * 0.65, angle, Math.sin(angle) * 0.65 + 0.2);
-        hatGroup.add(leaf);
+      // Capucha de cuero: cubre cráneo y nuca, con dobladillo cosido en la
+      // abertura del rostro y lazo al cuello.
+      const radius = 0.452;
+      const height = 0.4;
+      const gap = 2.05;
+      addHatPart(hatLeather, hoodShellGeometry({ radius, height, gap, flare: 0.1, rings: 16 }), {});
+      // Forro claro por dentro: la abertura deja de ser un agujero negro.
+      addHatPart(hatLining, hoodShellGeometry({ radius: radius * 0.988, height: height * 0.985, gap, flare: 0.1, rings: 14 }), {});
+      for (const side of [1, -1]) {
+        const rim = hoodRimPoints({ radius, height, gap, side, rings: 16 });
+        addHatPart(hatStrap, tubeFromPoints(rim, 0.014, 5), {});
+        stitchAlong(hatStitches, rim, { count: 22, size: 0.009 });
+        addFurAlong(rim.slice(8), 30, 0.032, 0.011);
       }
-      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 0.55, 5), staffMat);
-      stem.position.y = 0.42;
-      hatGroup.add(stem);
-      const berry = new THREE.Mesh(GEO.shard, magicMat);
-      berry.position.y = 0.72;
-      hatGroup.add(berry);
+      // Costura dorsal, de la coronilla a la nuca.
+      const seam = [];
+      for (let k = 0; k <= 7; k++) {
+        const theta = (k / 7) * Math.PI * 0.62;
+        seam.push(new THREE.Vector3(0, height * Math.cos(theta), -Math.sin(theta) * radius));
+      }
+      addHatPart(hatStrap, tubeFromPoints(seam, 0.012, 4), {});
+      // Dobladillo del borde inferior, de mandíbula a mandíbula.
+      const hem = hoodHemPoints({ radius, height, gap, flare: 0.1, radial: 26 });
+      addHatPart(hatStrap, tubeFromPoints(hem, 0.013, 4), {});
+      stitchAlong(hatStitches, hem, { count: 28, size: 0.009 });
+      // Correa al cuello con pasador.
+      addHatPart(hatStrap, new THREE.CylinderGeometry(0.016, 0.018, 0.22, 5), { x: -0.06, y: -0.16, z: 0.285, rz: 1.32, rx: 0.3 });
+      addHatPart(hatMetal, new THREE.BoxGeometry(0.038, 0.032, 0.024), { y: -0.185, z: 0.322 });
       break;
     }
     case 'dark': {
-      hoodMat = lambert(look.hatColor, { emissive: new THREE.Color('#2a1740'), emissiveIntensity: 0.25 });
-      materials.push(hoodMat);
-      const hood = new THREE.Mesh(new THREE.SphereGeometry(0.62, 14, 10), hoodMat);
-      hood.scale.set(1.02, 1.05, 1.02);
-      hood.position.y = 0.14;
-      hatGroup.add(hood);
-      const point = new THREE.Mesh(new THREE.ConeGeometry(0.36, 1.25, 9), hoodMat);
-      point.position.set(-0.15, 0.78, -0.18);
-      point.rotation.z = 0.55;
-      point.rotation.x = -0.25;
-      hatGroup.add(point);
-      const band = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.04, 5, 18), magicMat);
-      band.rotation.x = Math.PI / 2;
-      band.position.y = -0.1;
-      hatGroup.add(band);
+      // Capucha de paño: pliegues blandos, caída larga en la nuca y vueltas
+      // cosidas. La forma es hermana de la capucha de cuero; el material, no.
+      const radius = 0.462;
+      const height = 0.405;
+      const gap = 2.2;
+      addHatPart(hatFelt, hoodShellGeometry({
+        radius,
+        height,
+        gap,
+        flare: 0.18,
+        rings: 18,
+        folds: 6,
+        foldAmp: 0.012,
+        phase: 0.6,
+      }), {});
+      addHatPart(hatLining, hoodShellGeometry({ radius: radius * 0.968, height: height * 0.98, gap, flare: 0.18, rings: 14 }), {});
+      for (const side of [1, -1]) {
+        const rim = hoodRimPoints({ radius, height, gap, side, rings: 18 });
+        addHatPart(hatStrap, tubeFromPoints(rim, 0.016, 6), {});
+        stitchAlong(hatStitches, rim, { count: 24, size: 0.01 });
+      }
+      // Falda de paño con pliegues sobre la nuca y los hombros.
+      // Dobladillo del borde inferior y pasador al cuello.
+      const hem = hoodHemPoints({ radius, height, gap, flare: 0.18, radial: 30 });
+      addHatPart(hatStrap, tubeFromPoints(hem, 0.015, 4), {});
+      stitchAlong(hatStitches, hem, { count: 30, size: 0.01 });
+      addHatPart(hatMetal, new THREE.BoxGeometry(0.05, 0.034, 0.026), { y: -0.152, z: 0.33 });
       break;
     }
     case 'crystal': {
-      const ring = new THREE.Mesh(GEO.crownRing, magicMat);
-      ring.rotation.x = Math.PI / 2;
-      ring.position.y = 0.14;
-      hatGroup.add(ring);
-      for (let i = 0; i < 5; i++) {
-        const angle = (i / 5) * Math.PI * 2;
-        const shard = new THREE.Mesh(GEO.shard, magicMat);
-        shard.position.set(Math.cos(angle) * 0.46, 0.36, Math.sin(angle) * 0.46);
-        shard.rotation.y = angle;
-        shard.scale.y = 1.7;
-        hatGroup.add(shard);
-        crownShards.push(shard);
+      // Diadema rúnica: casquete de cuero ceñido, aro de latón con placas y una
+      // gema engastada. Se apoya en la cabeza, no flota.
+      addHatPart(hatLeather, capShellGeometry({ radius: 0.416, height: 0.39, radial: 32, rings: 12 }), {});
+      // Costura de unión de los dos gajos del casquete.
+      const capSeam = [];
+      for (let k = 0; k <= 8; k++) {
+        const theta = (k / 8) * Math.PI * 0.46;
+        capSeam.push(new THREE.Vector3(0, Math.sin(theta) * 0.39, -Math.cos(theta) * 0.416));
       }
-      const orb = new THREE.Mesh(GEO.shard, magicMat);
-      orb.position.y = 0.85;
-      orb.scale.setScalar(1.5);
-      hatGroup.add(orb);
-      crownShards.push(orb);
+      addHatPart(hatStrap, tubeFromPoints(capSeam, 0.009, 4), {});
+      addHatPart(hatStrap, new THREE.CylinderGeometry(0.42, 0.422, 0.05, 32, 1, true), { y: 0.014 });
+      stitchRing(hatStitches, { radius: 0.422, y: 0.036, count: 34, size: 0.008 });
+      addHatPart(hatMetal, new THREE.CylinderGeometry(0.422, 0.423, 0.055, 34, 1, true), { y: 0.095 });
+      for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2;
+        addHatPart(hatMetal, new THREE.BoxGeometry(0.06, 0.075, 0.016), {
+          x: Math.sin(angle) * 0.424,
+          y: 0.095,
+          z: Math.cos(angle) * 0.424,
+          ry: angle,
+        });
+      }
+      addHatPart(hatMetal, new THREE.CylinderGeometry(0.058, 0.05, 0.03, 8), { y: 0.1, z: 0.42, rx: Math.PI / 2, ry: 0.4 });
+      const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.072, 0), magicMat);
+      gem.position.set(0, 0.1, 0.434);
+      gem.scale.set(0.78, 1.25, 0.7);
+      hatGroup.add(gem);
+      for (const side of [-1, 1]) {
+        const stud = new THREE.Mesh(new THREE.OctahedronGeometry(0.028, 0), magicMat);
+        stud.position.set(side * 0.19, 0.1, 0.38);
+        hatGroup.add(stud);
+      }
       break;
     }
     case 'pointy':
     default: {
-      const brim = new THREE.Mesh(GEO.brim, hatMat);
-      hatGroup.add(brim);
-      const cone = new THREE.Mesh(GEO.cone, hatMat);
-      cone.position.y = 0.64;
-      cone.rotation.z = 0.05;
-      hatGroup.add(cone);
-      const band = new THREE.Mesh(GEO.band, magicMat);
-      band.rotation.x = Math.PI / 2;
-      band.position.y = 0.14;
-      hatGroup.add(band);
-      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), magicMat);
-      tip.position.set(0.06, 1.27, 0);
-      hatGroup.add(tip);
-      hatTopGlow = tip;
+      // Sombrero de archimago: copa de fieltro con la punta doblada, ala corta
+      // y cinta de cuero con hebilla.
+      addHatPart(hatFelt, brimGeometry({ inner: 0.42, outer: 0.66, droop: 0.06, thickness: 0.042, wave: 0.038 }), { y: 0.005 });
+      addBrimEdge(0.664, -0.066, 0.02);
+      addHatPart(hatLining, new THREE.TorusGeometry(0.423, 0.008, 4, 40), { y: -0.008, rx: Math.PI / 2 });
+      stitchAlong(hatStitches, brimStitches(0.42, 0.66, 0.632, -0.042, 0.03, 0.4, 46), { count: 46, size: 0.008, closed: true });
+      const coneCrown = bentConeGeometry({ height: 0.68, radius: 0.435, tip: 0.05, bendX: 0.2, bendZ: -0.12, segments: 18, radial: 30, belly: 0.68 });
+      addFolds(coneCrown, { count: 7, amp: 0.016, phase: 1.2, from: 0.06, to: 0.58 });
+      dentGeometry(coneCrown, { x: 0.08, y: 0.32, z: 0.26, radius: 0.3, depth: 0.055 });
+      addHatPart(hatFelt, coneCrown, { y: 0.005 });
+      addHatPart(hatFelt, new THREE.SphereGeometry(0.052, 8, 6), { x: 0.203, y: 0.683, z: -0.122, sy: 0.58 });
+      addStrapBand(0.438, 0.072, 0.052);
+      addBuckle(0.052, 0.446, 0.08);
+      stitchRing(hatStitches, { radius: 0.437, y: 0.086, count: 28, size: 0.008 });
       break;
     }
   }
+
+  const addHatMesh = (parts, material) => {
+    if (!parts.length) return;
+    for (const part of parts) if (!part.attributes.color) shadeHatGeometry(part);
+    const merged = mergeGeometries(parts, false);
+    if (!merged) return;
+    hatGroup.add(new THREE.Mesh(merged, material));
+  };
+  addHatMesh(hatFelt, hatMat);
+  addHatMesh(hatLeather, hatLeatherMat);
+  addHatMesh(hatStrap, hatStrapMat);
+  addHatMesh(hatLining, hatLiningMat);
+  addHatMesh(hatMetal, hatMetalMat);
+  addHatMesh(hatFur, hatFurMat);
+  addHatMesh(hatStitches, hatStitchMat);
 
   // ------------------------------------------------------------------ bastón
   const staffGroup = new THREE.Group();
@@ -428,22 +1128,6 @@ export function createWizard(look) {
   glow.scale.setScalar(1.15);
   staffHead.add(glow);
 
-  if (hatTopGlow) {
-    hatGlowMat = new THREE.SpriteMaterial({
-      map: getGlowTexture(),
-      color: look.magic,
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      opacity: 0.7,
-    });
-    materials.push(hatGlowMat);
-    const hatGlow = new THREE.Sprite(hatGlowMat);
-    hatGlow.position.set(0.06, 1.3, 0);
-    hatGlow.scale.setScalar(0.7);
-    hatGroup.add(hatGlow);
-  }
-
   // --------------------------------------------------------------- esqueleto
   let model = null;
   let mixer = null;
@@ -531,7 +1215,8 @@ export function createWizard(look) {
     const magic = percentToHex(adminCfg['look.magic']);
     const orbColor = currentElement || magic;
     hatMat.color.set(hatColor);
-    if (hoodMat) hoodMat.color.set(hatColor);
+    hatLeatherMat.color.set(hatColor).lerp(LEATHER_TONE, 0.34);
+    hatStrapMat.color.set(hatColor).lerp(LEATHER_TONE, 0.58).multiplyScalar(0.9);
     staffMat.color.set(staffColor);
     magicMat.color.set(magic);
     magicMat.emissive.set(magic);
@@ -540,7 +1225,6 @@ export function createWizard(look) {
     orbMat.color.set(orbColor);
     orbMat.emissive.set(orbColor);
     glowMat.color.set(orbColor);
-    if (hatGlowMat) hatGlowMat.color.set(magic);
 
     hatPivot.visible = adminFlag('look.hatVisible', true);
     staffGroup.visible = adminFlag('look.staffVisible', true);
@@ -866,9 +1550,6 @@ export function createWizard(look) {
         orbMat.emissiveIntensity = 1.8 * magicGlow;
         orb.rotation.y = time * 0.9;
         orb.rotation.x = Math.sin(time * 0.7) * 0.15;
-        for (let i = 0; i < crownShards.length; i++) {
-          crownShards[i].rotation.y = time * (0.6 + i * 0.1) * (1 + access * 0.5) + i;
-        }
       }
     },
     dispose() {

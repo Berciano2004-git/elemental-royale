@@ -198,13 +198,16 @@ export const RARITIES = {
 
 export const RARITY_KEYS = Object.keys(RARITIES);
 
+// Los ids son históricos (se guardan en los aspectos): las piezas son, en este
+// orden, sombrero de fieltro, sombrero de ala ancha, casco de cuero, capucha de
+// cuero con vuelta de pelo, capucha de paño y diadema sobre casquete.
 export const HATS = [
-  { id: 'pointy', name: 'Sombrero clásico' },
-  { id: 'wide', name: 'Sombrero de aventurero' },
-  { id: 'horns', name: 'Sombrero con cuernos' },
-  { id: 'leaves', name: 'Sombrero de hojas' },
-  { id: 'dark', name: 'Capucha oscura' },
-  { id: 'crystal', name: 'Corona de cristal' },
+  { id: 'pointy', name: 'Sombrero de archimago' },
+  { id: 'wide', name: 'Sombrero de caminante' },
+  { id: 'horns', name: 'Casco de cuero' },
+  { id: 'leaves', name: 'Capucha de cuero' },
+  { id: 'dark', name: 'Capucha de paño' },
+  { id: 'crystal', name: 'Diadema rúnica' },
 ];
 
 export const STAVES = [

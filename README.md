@@ -111,8 +111,9 @@ Cada partida genera una isla distinta a partir de una semilla:
 
 En el **Taller arcano** puedes cambiar en tiempo real:
 
-- Seis sombreros: clásico, aventurero, con cuernos, de hojas, capucha oscura y corona de
-  cristal.
+- Seis sombreros: archimago, caminante, casco de cuero, capucha de cuero con vuelta de pelo,
+  capucha de paño y diadema rúnica. Comparten fieltro, cuero curtido, cinta, hebilla y
+  pespuntes; cambia la silueta, no el estilo, y todos envuelven el cráneo hasta la frente.
 - Seis bastones: madera, cristal, fuego, hielo, raíces y oscuro.
 - Doce colores de túnica, diez de sombrero y ocho de bastón, además de detalles mágicos,
   cabello y piel. La túnica tiñe la ropa del modelo, el pelo tiñe el cabello completo
@@ -220,6 +221,15 @@ que el bastón se mueve con la muñeca (agarre real) con un dejarse mecer mínim
 lanzando, recibiendo daño o muerto) y el paso de `walk` a `run` conserva la fase para que el
 pie que apoya no salte de sitio.
 
+Los **gorros** se generan con la misma familia de materiales: fieltro teñible con trama y
+desgaste procedurales, cuero curtido con grano, cinta oscura, forro de tela, latón
+envejecido, pelo y pespuntes. El borde apoya en la frente y la copa sube 0,35 para cubrir
+la coronilla. Cada pieza se modela por revolución o por anillos y se retoca con pliegues
+(`addFolds`) y hundimientos (`dentGeometry`); un sombreado horneado en los vértices oscurece
+el interior de las alas y los dobladillos. Las piezas se fusionan por material
+(`mergeGeometries`), así que un sombrero con ala, copa, cinta, hebilla y costuras sigue
+siendo un puñado de mallas.
+
 ---
 
 ## 🧠 Arquitectura
@@ -243,6 +253,8 @@ src/three/gameview.js    cámara, predicción, instancias y render de partida
 server/index.js          HTTP + Vite (desarrollo) o dist/ (producción) + WebSocket
 server/game.js           sala, partida autoritativa, hechizos, tormenta y protocolo
 server/bots.js           IA de los magos controlados por el servidor
+server/history.js        historial de partidas en un disco Archil (persistente)
+scripts/archil-history.mjs  CLI para consultar ese historial (`npm run history`)
 shared/constants.js      elementos, combinaciones, rarezas y cosméticos
 shared/worldgen.js       generación determinista del mapa (cliente y servidor)
 shared/movement.js       colisión y movimiento compartidos
@@ -289,6 +301,33 @@ esqueleto, los pesos y los clips. También se puede inspeccionar en
 ver u ocultar los huesos y añade `?tint` a la URL para colorear las regiones).
 
 La compilación de producción se valida con `npm run build`.
+
+---
+
+## 🏆 Historial persistente (Archil)
+
+Cada partida terminada se guarda en un **disco Archil** mediante la SDK de
+TypeScript (`disk`), así que el historial sobrevive a los reinicios del servidor y a
+cambiar de máquina. La integración vive en `server/history.js` y el servidor solo la
+usa si hay clave configurada: sin ella el juego arranca y se juega exactamente igual.
+
+Requisito: **Node.js 22.19 o superior** para la SDK (el resto del juego funciona con 20).
+
+```bash
+cp .env.example .env          # y pega tu clave en ARCHIL_API_KEY
+npm run history               # últimas partidas guardadas en el disco
+npm run history -- --json     # volcado completo en JSON
+```
+
+Variables (todas se leen de `.env` o del entorno): `ARCHIL_API_KEY` (obligatoria para
+el historial), `ARCHIL_REGION` (`aws-us-east-1` por defecto) y `ARCHIL_DISK` (nombre
+del disco, `elemental-royale` por defecto; se crea la primera vez).
+
+`server/history.js` resuelve el disco por nombre con `listDisks` y lo crea si no
+existe, y guarda hasta 100 partidas en `historial/partidas.json` dentro del disco con
+`putObject`/`getObject`. Cada entrada registra semilla, magos, humanos, duración,
+ganador, bajas y el podio. Al terminar una partida el servidor llama a
+`recordMatchSafely`, que nunca interrumpe el final aunque Archil no responda.
 
 ---
 
