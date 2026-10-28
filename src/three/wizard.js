@@ -600,6 +600,14 @@ export function createWizard(look) {
     next.enabled = true;
     next.setEffectiveTimeScale(clipSpeed(name));
     next.setEffectiveWeight(1);
+    // Andar y correr comparten la fase del paso: al cambiar de uno a otro el
+    // pie que apoya no salta de sitio a mitad de zancada.
+    const from = current ? current.getClip().name : null;
+    if ((name === 'walk' || name === 'run') && (from === 'walk' || from === 'run')) {
+      const fromDuration = current.getClip().duration || 1;
+      const toDuration = next.getClip().duration || 1;
+      next.time = ((current.time % fromDuration) / fromDuration) * toDuration;
+    }
     const scale = adminValue('anim.transition', 0.18) / 0.18;
     if (current) next.crossFadeFrom(current, Math.max(0, fade * scale), false);
     next.play();

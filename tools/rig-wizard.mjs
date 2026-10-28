@@ -173,7 +173,10 @@ function segmentDistance(px, py, pz, a, b) {
 // El horneado añade un ajuste vertical en Root (ver groundClamp) para que la
 // planta quede exactamente sobre el suelo en todos los fotogramas.
 
-const FPS = 30;
+// 60 fotogramas por segundo: los gestos rápidos (la carga del hechizo) se
+// muestrean con la misma densidad que la pantalla y el mezclador no tiene que
+// estirar tramos largos entre claves.
+const FPS = 60;
 const TAU = Math.PI * 2;
 
 function quatFromEuler(x, y, z) {
@@ -260,27 +263,34 @@ function idleAt(phase) {
   const p = phase * TAU;
   const breathe = Math.sin(p);
   const sway = Math.sin(p - 0.85);
-  const slow = Math.sin(p * 0.5 + 0.4);
+  // Todos los armónicos tienen que cerrar en una vuelta entera: con un
+  // frecuencia 0,5 la cabeza saltaba en la costura del bucle (cada 4 s).
+  const scan = Math.sin(p + 0.4);
   const orbit = Math.sin(p + 1.35);
+  const flick = Math.sin(p * 2 + 0.9);
   return {
     Hips: {
-      r: [0, 0.02 + 0.012 * sway, 0.012 * sway],
-      loc: [0.02 * sway, 0.004 * breathe - 0.002, 0],
+      r: [0, 0.02 + 0.014 * sway, 0.012 * sway],
+      loc: [0.02 * sway, 0.005 * breathe - 0.002, 0],
     },
-    Spine: [0.028 + 0.012 * breathe, -0.018 - 0.02 * sway, 0.006 + 0.006 * sway],
-    Chest: [-0.04 + 0.016 * breathe, -0.03 - 0.028 * sway, 0.004 * sway],
-    Neck: [0.018 - 0.008 * breathe, 0.018 + 0.03 * slow, 0],
-    Head: [0.036 - 0.014 * breathe + 0.008 * slow, 0.04 + 0.055 * slow, 0.008 + 0.012 * sway],
-    Shoulder_L: [0, 0.015, 0.028 + 0.012 * sway],
-    UpperArm_L: [0, 0.28 + 0.022 * sway, -1.26 - 0.012 * breathe],
-    Forearm_L: [0, -1.35 + 0.04 * breathe, -0.3],
-    Hand_L: [0.61 + 0.03 * breathe, 0.12, 0.1],
-    Fingers_L: [0, 0, 1.15 + 0.04 * breathe],
-    Shoulder_R: [0, -0.015 - 0.012 * sway, 0.055 + 0.014 * sway],
-    UpperArm_R: [0, 1.0 + 0.05 * sway, 0.85 - 0.03 * breathe],
-    Forearm_R: [0, 1.75 + 0.08 * orbit, -0.3 - 0.05 * sway],
-    Hand_R: [0.14 + 0.14 * orbit, 0.16 + 0.2 * Math.sin(p + 0.6), -0.34 - 0.12 * Math.cos(p + 0.6)],
-    Fingers_R: [0, 0, -0.18 + 0.1 * Math.sin(p + 2.1)],
+    Spine: [0.03 + 0.014 * breathe, -0.02 - 0.022 * sway, 0.007 + 0.008 * sway],
+    Chest: [-0.045 + 0.018 * breathe, -0.03 - 0.032 * sway, 0.005 * sway],
+    Neck: [0.018 - 0.008 * breathe, 0.018 + 0.026 * scan, 0],
+    Head: [0.036 - 0.015 * breathe + 0.007 * flick, 0.04 + 0.048 * scan, 0.008 + 0.012 * sway],
+    Shoulder_L: [0, 0.015, 0.028 + 0.014 * sway],
+    UpperArm_L: [0, 0.28 + 0.03 * Math.sin(p + 0.7), -1.26 - 0.016 * breathe],
+    Forearm_L: [0, -1.35 + 0.05 * breathe, -0.3],
+    Hand_L: [0.61 + 0.04 * breathe, 0.12, 0.1],
+    Fingers_L: [0, 0, 1.15 + 0.05 * breathe],
+    Shoulder_R: [0, -0.015 - 0.014 * sway, 0.055 + 0.016 * sway],
+    UpperArm_R: [0, 1.0 + 0.06 * sway + 0.02 * flick, 0.85 - 0.04 * breathe],
+    Forearm_R: [0, 1.75 + 0.1 * orbit + 0.06 * flick, -0.3 - 0.06 * sway],
+    Hand_R: [
+      0.14 + 0.16 * orbit + 0.07 * flick,
+      0.16 + 0.22 * Math.sin(p + 0.6),
+      -0.34 - 0.14 * Math.cos(p + 0.6) + 0.06 * flick,
+    ],
+    Fingers_R: [0, 0, -0.18 + 0.14 * Math.sin(p + 1.2)],
     UpperLeg_L: [-0.03 + 0.018 * sway, 0.045, 0.02],
     LowerLeg_L: [0.075 - 0.02 * sway, 0, 0],
     UpperLeg_R: [0.035 - 0.018 * sway, -0.05, -0.02],
@@ -347,24 +357,26 @@ function walkUpper(phase) {
   const lag = Math.sin(p - 0.5);
   const bob = Math.cos(p * 2);
   return {
-    Spine: [0.034 + 0.008 * bob, 0.02 * swing - 0.01, 0.008],
-    Chest: [-0.045 + 0.012 * bob, 0.115 * swing, 0.016 * Math.sin(p)],
-    Neck: [0.016 - 0.006 * bob, -0.05 * swing, 0],
+    Spine: [0.036 + 0.01 * bob, 0.03 * swing - 0.01, 0.012 * Math.sin(p + 0.2)],
+    Chest: [-0.05 + 0.014 * bob, 0.14 * swing, 0.02 * Math.sin(p)],
+    Neck: [0.016 - 0.006 * bob, -0.06 * swing, 0],
     Head: [
-      0.038 + 0.012 * bob,
-      0.04 - 0.075 * swing + 0.02 * Math.sin(p * 2 + 0.6),
-      0.008 + 0.014 * Math.sin(p - 0.4),
+      0.038 + 0.014 * bob,
+      0.04 - 0.085 * swing + 0.018 * Math.sin(p * 2 + 0.6),
+      0.008 + 0.016 * Math.sin(p - 0.4),
     ],
-    Shoulder_L: [0, 0.015, 0.028 + 0.012 * swing],
-    UpperArm_L: [0, 0.28 - 0.025 * swing, -1.26 - 0.015 * bob],
-    Forearm_L: [0, -1.35 + 0.03 * lag, -0.3],
-    Hand_L: [0.61 + 0.02 * lag, 0.12, 0.1],
+    Shoulder_L: [0, 0.015, 0.028 + 0.014 * swing],
+    // El brazo del bastón apenas se mueve: lo lleva como un apoyo y el bastón
+    // se mece con el paso en vez de agitarse.
+    UpperArm_L: [0, 0.28 - 0.04 * swing, -1.26 - 0.02 * bob],
+    Forearm_L: [0, -1.35 + 0.06 * lag, -0.3],
+    Hand_L: [0.61 + 0.03 * lag, 0.12, 0.1],
     Fingers_L: [0, 0, 1.15],
-    Shoulder_R: [0, -0.015 - 0.02 * swing, 0.055 + 0.018 * swing],
-    UpperArm_R: [0, 1.04 + 0.09 * swing, 0.82 + 0.04 * lag],
-    Forearm_R: [0, 1.72 + 0.12 * lag + 0.05 * Math.sin(p * 2 + 0.9), -0.3 - 0.06 * swing],
-    Hand_R: [0.15 + 0.16 * Math.sin(p + 1.7), 0.16 + 0.18 * Math.sin(p + 0.8), -0.34 - 0.14 * Math.cos(p + 0.8)],
-    Fingers_R: [0, 0, -0.18 + 0.12 * Math.sin(p + 1.2)],
+    Shoulder_R: [0, -0.015 - 0.024 * swing, 0.055 + 0.02 * swing],
+    UpperArm_R: [0, 1.04 + 0.12 * swing, 0.82 + 0.05 * lag],
+    Forearm_R: [0, 1.72 + 0.16 * lag + 0.06 * Math.sin(p * 2 + 0.9), -0.3 - 0.07 * swing],
+    Hand_R: [0.15 + 0.18 * Math.sin(p + 1.7), 0.16 + 0.2 * Math.sin(p + 0.8), -0.34 - 0.15 * Math.cos(p + 0.8)],
+    Fingers_R: [0, 0, -0.18 + 0.16 * Math.sin(p + 1.2)],
   };
 }
 
@@ -442,19 +454,21 @@ function runUpper(phase) {
   const swing = Math.cos(p);
   const lag = Math.sin(p - 0.7);
   return {
-    Spine: [0.19 + 0.02 * Math.cos(p * 2), 0.025 * swing, 0.012],
-    Chest: [0.06, 0.14 * swing, 0.02 * Math.sin(p)],
-    Neck: [-0.1, -0.05 * swing, 0],
-    Head: [-0.06, 0.04 - 0.07 * swing, 0.012],
+    Spine: [0.24 + 0.025 * Math.cos(p * 2), 0.03 * swing, 0.014],
+    Chest: [0.08, 0.16 * swing, 0.024 * Math.sin(p)],
+    Neck: [-0.13, -0.06 * swing, 0],
+    Head: [-0.09, 0.04 - 0.08 * swing, 0.014],
     Shoulder_L: [0, 0.03, 0.05],
-    UpperArm_L: [0, 0.24 - 0.02 * swing, -1.24],
-    Forearm_L: [0, -1.37, -0.3],
-    Hand_L: [0.61, 0.12, 0.1],
+    // Con la carrera el bastón se retrasa y se inclina, pero la muñeca lo
+    // mantiene firme para que no golpee el suelo.
+    UpperArm_L: [0, 0.2 - 0.04 * swing, -1.2],
+    Forearm_L: [0, -1.42, -0.32],
+    Hand_L: [0.58, 0.12, 0.08],
     Fingers_L: [0, 0, 1.15],
-    Shoulder_R: [0, -0.02 - 0.03 * swing, 0.06 + 0.03 * swing],
-    UpperArm_R: [0, 1.02 + 0.32 * swing, 0.85 + 0.06 * lag],
-    Forearm_R: [0, 1.63 + 0.2 * lag, -0.32],
-    Hand_R: [0.14 + 0.08 * Math.sin(p + 1.2), 0.16, -0.34 - 0.08 * Math.cos(p + 1.2)],
+    Shoulder_R: [0, -0.02 - 0.036 * swing, 0.06 + 0.036 * swing],
+    UpperArm_R: [0, 1.02 + 0.4 * swing, 0.85 + 0.07 * lag],
+    Forearm_R: [0, 1.63 + 0.26 * lag, -0.32],
+    Hand_R: [0.14 + 0.1 * Math.sin(p + 1.2), 0.16, -0.34 - 0.1 * Math.cos(p + 1.2)],
     Fingers_R: [0, 0, -0.34],
   };
 }
@@ -560,104 +574,151 @@ clips.push({
   ],
 });
 
-// Hechizo: el mago recoge energía hacia el pecho con la mano libre, y la
-// empuja al frente mientras el bastón se mantiene alto como foco. El peso
-// viaja al pie adelantado y la cabeza acompaña el gesto.
+// Hechizo: el mago gira el torso para cargar el gesto, sube el bastón como
+// foco y empuja con la mano libre a la altura del pecho, dando un paso. La
+// muñeca acompaña al final para que el empuje no parezca un saludo.
 clips.push({
   name: 'cast',
   duration: 1.1,
   loop: false,
   keys: [
     { t: 0, p: idleRest },
+    // Carga: el torso se enrosca a la derecha y la mano libre se retrae a las
+    // costillas, con los dedos cerrados; el bastón se separa del suelo.
     {
-      t: 0.2,
+      t: 0.16,
       p: pose({
-        Hips: { r: [0, 0.12, 0.015], loc: [0.008, -0.012, 0] },
-        Spine: [0.01, 0.14, 0.01],
-        Chest: [-0.04, 0.2, 0.01],
-        Neck: [0.02, -0.08, 0],
-        Head: [0.06, 0.02, 0],
-        Shoulder_L: [0, 0.02, 0.05],
-        UpperArm_L: [0, 0.02, -0.9],
-        Forearm_L: [0, -1.3, -0.16],
-        Hand_L: [0.65, 0.14, 0.1],
-        Shoulder_R: [0, 0.02, 0.03],
-        UpperArm_R: [0, 1.02, 0.66],
-        Forearm_R: [0, 2.0, -0.1],
-        Hand_R: [0.24, 0.3, -0.5],
-        Fingers_R: [0, 0, -0.55],
-        UpperLeg_L: [-0.1, 0.045, 0.02],
-        LowerLeg_L: [0.16, 0, 0],
-        UpperLeg_R: [0.08, -0.05, -0.02],
-        LowerLeg_R: [0.2, 0, 0],
-      }),
-    },
-    {
-      t: 0.36,
-      p: pose({
-        Hips: { r: [0, 0.04, 0.008], loc: [0.004, -0.02, 0] },
-        Spine: [0.03, 0.06, 0.006],
-        Chest: [-0.02, 0.1, 0],
-        Neck: [0.02, -0.03, 0],
-        Head: [0.05, 0.02, 0],
-        UpperArm_L: [0, 0.04, -0.88],
-        Forearm_L: [0, -1.34, -0.16],
-        Hand_L: [0.65, 0.14, 0.1],
-        UpperArm_R: [0, 1.1, 0.62],
-        Forearm_R: [0, 2.05, -0.05],
-        Hand_R: [0.3, 0.32, -0.6],
-        Fingers_R: [0, 0, -0.62],
-        UpperLeg_L: [-0.12, 0.045, 0.02],
-        LowerLeg_L: [0.18, 0, 0],
-        UpperLeg_R: [0.1, -0.05, -0.02],
-        LowerLeg_R: [0.22, 0, 0],
-      }),
-    },
-    {
-      t: 0.52,
-      p: pose({
-        Hips: { r: [0, -0.16, 0.01], loc: [-0.01, -0.03, 0.02] },
-        Spine: [0.1, -0.18, 0.004],
-        Chest: [0.02, -0.26, 0],
-        Neck: [-0.02, 0.12, 0],
-        Head: [-0.02, 0.08, 0],
-        Shoulder_L: [0, -0.03, 0.02],
-        UpperArm_L: [0, -0.5, -1.02],
-        Forearm_L: [0, -1.05, -0.12],
-        Hand_L: [0.59, 0.1, 0.12],
-        Shoulder_R: [0, 0.04, 0.02],
-        UpperArm_R: [0, 1.32, 0.3],
-        Forearm_R: [0, 0.6, -0.05],
-        Hand_R: [0.16, 0.1, -0.28],
-        Fingers_R: [0, 0, -0.04],
-        UpperLeg_L: [-0.24, 0.045, 0.02],
-        LowerLeg_L: [0.3, 0, 0],
-        Foot_L: [-0.08, -0.055, 0],
-        UpperLeg_R: [0.16, -0.05, -0.02],
-        LowerLeg_R: [0.3, 0, 0],
-        Foot_R: [0.2, 0.05, 0],
-        Toe_R: [-0.2, 0, 0],
-      }),
-    },
-    {
-      t: 0.72,
-      p: pose({
-        Hips: { r: [0, -0.06, 0.014], loc: [-0.004, -0.018, 0.01] },
-        Spine: [0.07, -0.08, 0.006],
-        Chest: [0.005, -0.14, 0],
-        Neck: [0, 0.06, 0],
-        Head: [0.01, 0.05, 0],
-        UpperArm_L: [0, -0.12, -0.98],
-        Forearm_L: [0, -1.0, -0.14],
-        Hand_L: [0.61, 0.12, 0.1],
-        UpperArm_R: [0, 1.16, 0.5],
-        Forearm_R: [0, 1.1, -0.1],
-        Hand_R: [0.18, 0.14, -0.34],
-        Fingers_R: [0, 0, -0.2],
-        UpperLeg_L: [-0.16, 0.045, 0.02],
+        Hips: { r: [0, -0.1, 0.01], loc: [0.004, -0.018, -0.012] },
+        Spine: [0.02, -0.12, 0.008],
+        Chest: [-0.04, -0.16, 0.006],
+        Neck: [0.02, 0.07, 0],
+        Head: [0.05, 0.03, 0],
+        Shoulder_L: [0, 0.03, 0.045],
+        UpperArm_L: [0, 0.34, -1.22],
+        Forearm_L: [0, -1.3, -0.32],
+        Hand_L: [0.58, 0.12, 0.1],
+        Fingers_L: [0, 0, 1.12],
+        Shoulder_R: [0, -0.02, 0.05],
+        UpperArm_R: [0, 0.55, 0.3],
+        Forearm_R: [0, 1.9, 0.1],
+        Hand_R: [0.1, 0.15, -0.2],
+        Fingers_R: [0, 0, -0.5],
+        UpperLeg_L: [-0.14, 0.045, 0.02],
         LowerLeg_L: [0.22, 0, 0],
-        UpperLeg_R: [0.1, -0.05, -0.02],
+        Foot_L: [-0.1, -0.055, 0],
+        UpperLeg_R: [0.12, -0.05, -0.02],
+        LowerLeg_R: [0.3, 0, 0],
+        Foot_R: [0.16, 0.05, 0],
+        Toe_R: [-0.16, 0, 0],
+      }),
+    },
+    // Recogida: la mano traza un sigilo frente al pecho y el bastón sube como
+    // foco; el peso cae en el pie retrasado.
+    {
+      t: 0.34,
+      p: pose({
+        Hips: { r: [0.02, 0, 0.004], loc: [0.004, -0.022, 0.008] },
+        Spine: [0.04, 0.02, 0.004],
+        Chest: [-0.03, 0.04, 0],
+        Neck: [0.02, -0.01, 0],
+        Head: [0.05, 0.03, 0],
+        Shoulder_L: [0, 0.02, 0.05],
+        UpperArm_L: [0, -0.15, -0.6],
+        Forearm_L: [0, -1.65, 0.05],
+        Hand_L: [0.42, 0.1, 0.1],
+        Fingers_L: [0, 0, 1.15],
+        Shoulder_R: [0, 0, 0.04],
+        UpperArm_R: [0, 1.25, 0.05],
+        Forearm_R: [0, 1.1, 0.15],
+        Hand_R: [0.22, 0.1, -0.28],
+        Fingers_R: [0, 0, -0.1],
+        UpperLeg_L: [-0.18, 0.045, 0.025],
+        LowerLeg_L: [0.28, 0, 0],
+        Foot_L: [-0.1, -0.055, 0],
+        UpperLeg_R: [0.16, -0.05, -0.025],
+        LowerLeg_R: [0.26, 0, 0],
+        Foot_R: [0.12, 0.05, 0],
+        Toe_R: [-0.12, 0, 0],
+      }),
+    },
+    // Empuje: paso con el pie derecho, el hombro derecho entra en el gesto y
+    // la palma queda delante del pecho, a la altura de la mirada.
+    {
+      t: 0.5,
+      p: pose({
+        Hips: { r: [0.05, 0.12, 0.006], loc: [-0.01, -0.03, 0.055] },
+        Spine: [0.1, 0.16, 0.004],
+        Chest: [0.02, 0.2, 0],
+        Neck: [-0.02, -0.1, 0],
+        Head: [-0.03, -0.06, 0],
+        Shoulder_L: [0, -0.02, 0.03],
+        UpperArm_L: [0, -0.5, -1.0],
+        Forearm_L: [0, -1.1, -0.15],
+        Hand_L: [0.56, 0.12, 0.14],
+        Fingers_L: [0, 0, 1.1],
+        Shoulder_R: [0, 0.03, 0.02],
+        UpperArm_R: [0, 1.58, 0],
+        Forearm_R: [0, 0.15, 0],
+        // La muñeca gira para enseñar la palma, no el dorso.
+        Hand_R: [1.15, 0.05, -0.05],
+        Fingers_R: [0, 0, 0.02],
+        UpperLeg_R: [-0.34, -0.05, -0.02],
         LowerLeg_R: [0.24, 0, 0],
+        Foot_R: [-0.18, 0.05, 0],
+        UpperLeg_L: [0.18, 0.045, 0.02],
+        LowerLeg_L: [0.12, 0, 0],
+        Foot_L: [0.22, -0.055, 0],
+        Toe_L: [-0.22, 0, 0],
+      }),
+    },
+    // Sostén: el gesto llega un poco más lejos y se asienta, sin rebotar.
+    {
+      t: 0.64,
+      p: pose({
+        Hips: { r: [0.06, 0.14, 0.008], loc: [-0.012, -0.034, 0.065] },
+        Spine: [0.12, 0.18, 0.005],
+        Chest: [0.03, 0.23, 0],
+        Neck: [-0.02, -0.12, 0],
+        Head: [-0.03, -0.07, 0],
+        UpperArm_L: [0, -0.55, -0.96],
+        Forearm_L: [0, -1.05, -0.12],
+        Hand_L: [0.56, 0.12, 0.16],
+        UpperArm_R: [0, 1.66, -0.05],
+        Forearm_R: [0, 0.05, 0],
+        Hand_R: [1.25, 0.05, -0.05],
+        Fingers_R: [0, 0, 0.02],
+        UpperLeg_R: [-0.36, -0.05, -0.02],
+        LowerLeg_R: [0.28, 0, 0],
+        Foot_R: [-0.2, 0.05, 0],
+        UpperLeg_L: [0.2, 0.045, 0.02],
+        LowerLeg_L: [0.14, 0, 0],
+        Foot_L: [0.24, -0.055, 0],
+        Toe_L: [-0.24, 0, 0],
+      }),
+    },
+    // Vuelta: el brazo baja por delante y el peso regresa al centro.
+    {
+      t: 0.86,
+      p: pose({
+        Hips: { r: [0.02, 0.04, 0.004], loc: [0, -0.018, 0.02] },
+        Spine: [0.05, 0.04, 0.004],
+        Chest: [-0.01, 0.05, 0],
+        Neck: [0, -0.03, 0],
+        Head: [0.02, 0.04, 0],
+        UpperArm_L: [0, 0.1, -1.14],
+        Forearm_L: [0, -1.3, -0.28],
+        Hand_L: [0.6, 0.12, 0.12],
+        UpperArm_R: [0, 1.2, 0.4],
+        Forearm_R: [0, 1.2, -0.1],
+        Hand_R: [0.12, 0.14, -0.25],
+        Fingers_R: [0, 0, -0.25],
+        UpperLeg_R: [-0.12, -0.05, -0.02],
+        LowerLeg_R: [0.18, 0, 0],
+        Foot_R: [-0.04, 0.05, 0],
+        UpperLeg_L: [0.08, 0.045, 0.02],
+        LowerLeg_L: [0.1, 0, 0],
+        Foot_L: [0.06, -0.055, 0],
+        Toe_L: [-0.06, 0, 0],
       }),
     },
     { t: 1.1, p: idleRest },
@@ -1557,7 +1618,7 @@ if (neutralAtlasJpeg) {
   }
 }
 
-// Animaciones: cada clip se hornea a 30 fps con curvas suaves.
+// Animaciones: cada clip se hornea a 60 fps con curvas suaves.
 const animationDefs = [];
 for (const clip of clips) {
   const baked = bakeClip(clip);

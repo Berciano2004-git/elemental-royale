@@ -189,8 +189,10 @@ alrededor del bastón; sin él las manos quedaban siempre abiertas.
 **Animaciones**: `idle` (respiración, reparto de peso y sigilo con la mano libre), `walk`
 (marcha de 1,4 s con el bastón estable y la mano libre tejiendo), `run` (carrera inclinada con
 vuelo), `start`/`stop` (entrada y frenada que empalman con el contacto del ciclo), `cast`
-(recoger energía y empujarla), `hit` y `death`. Se escriben como poses por hueso, se
-interpolan con Hermite y se hornean a 30 fps, sin capturas externas.
+(el torso se enrosca, el bastón sube como foco y la palma empuja dando un paso), `hit` y
+`death`. Se escriben como poses por hueso, se interpolan con Hermite y se hornean a 60 fps,
+sin capturas externas. Todos los armónicos del `idle` cierran en una vuelta entera para que
+el bucle no tenga saltos en la costura.
 
 El horneado mide la planta de las botas en cada fotograma y ajusta `Root` en vertical para
 que el pie de apoyo quede sobre el suelo: evita hundimientos y deja que la altura de la
@@ -200,8 +202,10 @@ ciclos y desplazamiento implícito de cada clip.
 
 **Teñido**: la malla se divide en cuatro primitivas —`Tunica`, `Piel`, `Pelo` y `Detalle`—
 para que el taller pueda recolorear la ropa, la piel y el pelo sin tocar el pantalón ni las
-botas. Las manos se detectan por componente (la palma queda dominada por el antebrazo) y se
-asignan a `Piel`, no a la túnica. En la cabeza el reparto piel/pelo lo decide el color
+botas. La tela se separa por el color pintado en el atlas (crema para la túnica, marrón para
+el pantalón y las botas), no por altura: el corte anterior partía el pantalón por la cadera
+y teñía su mitad superior. Las manos se detectan por componente (la palma queda dominada por
+el antebrazo) y se asignan a `Piel`, no a la túnica. En la cabeza el reparto piel/pelo lo decide el color
 pintado en el atlas —melocotón para piel, castaño y brillos fríos para pelo— votado en las
 esquinas de cada triángulo, con una caja de protección para ojos, nariz y boca. Así el
 flequillo y las patillas cambian con el pelo y el cuello se queda en piel. `Tunica`, `Piel`
@@ -213,7 +217,8 @@ cliente cada mago clona materiales y geometría de esqueleto con `SkeletonUtils.
 hueso `Hand_L`. La empuñadura se calcula una sola vez respecto a la pose de reposo, de modo
 que el bastón se mueve con la muñeca (agarre real) con un dejarse mecer mínimo. Un
 `AnimationMixer` hace fundidos entre clips según el estado (parado, andando, corriendo,
-lanzando, recibiendo daño o muerto).
+lanzando, recibiendo daño o muerto) y el paso de `walk` a `run` conserva la fase para que el
+pie que apoya no salte de sitio.
 
 ---
 
