@@ -114,7 +114,11 @@ En el **Taller arcano** puedes cambiar en tiempo real:
 - Seis sombreros: archimago, caminante, casco de cuero, capucha de cuero con vuelta de pelo,
   capucha de paño y diadema rúnica. Comparten fieltro, cuero curtido, cinta, hebilla y
   pespuntes; cambia la silueta, no el estilo, y todos envuelven el cráneo hasta la frente.
-- Seis bastones: madera, cristal, fuego, hielo, raíces y oscuro.
+- Seis bastones (madera, cristal, fuego, hielo, raíces y oscuro). Comparten contera de
+  latón, asta de madera veteada, puño envuelto en cuero y un engarce de joyería; encima,
+  una gema saturada con su halo. Cambia la pieza que la sostiene (engarce de latón, brasero
+  con llamas de perfil de gota, ramillete de esquirlas, nido de raíces o anillo de hierro),
+  no la gramática.
 - Doce colores de túnica, diez de sombrero y ocho de bastón, además de detalles mágicos,
   cabello y piel. La túnica tiñe la ropa del modelo, el pelo tiñe el cabello completo
   (flequillo, patillas y nuca) y la piel tiñe cara, cuello, orejas y manos. Las tres zonas

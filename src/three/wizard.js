@@ -163,6 +163,51 @@ function getLeatherTexture() {
   return leatherTexture;
 }
 
+// Veta de madera: gris claro con fibras verticales. Se multiplica por el color
+// elegido, así que el asta conserva el tono del taller y gana grano de cerca.
+let woodTexture = null;
+function getWoodTexture() {
+  if (woodTexture) return woodTexture;
+  const w = 128;
+  const h = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#e8dfcf';
+  ctx.fillRect(0, 0, w, h);
+  for (let i = 0; i < 130; i++) {
+    const x = Math.random() * w;
+    const y0 = Math.random() * h;
+    const length = 26 + Math.random() * 100;
+    const drift = (Math.random() - 0.5) * 10;
+    const dark = Math.random() < 0.6;
+    ctx.strokeStyle = dark
+      ? `rgba(92,72,52,${0.05 + Math.random() * 0.15})`
+      : `rgba(255,250,240,${0.05 + Math.random() * 0.1})`;
+    ctx.lineWidth = 0.5 + Math.random() * 1.8;
+    ctx.beginPath();
+    ctx.moveTo(x, y0);
+    ctx.quadraticCurveTo(x + drift, y0 + length * 0.5, x + drift * 0.4, y0 + length);
+    ctx.stroke();
+  }
+  for (let i = 0; i < 3; i++) {
+    const x = 20 + Math.random() * (w - 40);
+    const y = 40 + Math.random() * (h - 80);
+    ctx.strokeStyle = 'rgba(74,54,36,0.22)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.ellipse(x, y, 2.4, 7, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  woodTexture = new THREE.CanvasTexture(canvas);
+  woodTexture.colorSpace = THREE.SRGBColorSpace;
+  woodTexture.wrapS = THREE.RepeatWrapping;
+  woodTexture.wrapT = THREE.RepeatWrapping;
+  woodTexture.anisotropy = 4;
+  return woodTexture;
+}
+
 function placed(geometry, { x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1 } = {}) {
   const matrix = new THREE.Matrix4().compose(
     new THREE.Vector3(x, y, z),
@@ -932,188 +977,258 @@ export function createWizard(look) {
   staffArt.position.y = -STAFF_GRIP - 0.1;
   staffGroup.add(staffArt);
 
-  const shaft = new THREE.Mesh(GEO.shaft, staffMat);
-  shaft.position.y = 1.44;
+  // Herrajes y cuero del asta: contera de latón, anillos y una empuñadura
+  // envuelta, para que el bastón no sea un cilindro desnudo.
+  const staffDeep = lambert(new THREE.Color(percentToHex(look.staffColor)).multiplyScalar(0.55));
+  const staffWrapMat = lambert('#4a3322');
+  const vineMat = lambert('#4e6b3a');
+  const staffMetalMat = new THREE.MeshStandardMaterial({
+    color: '#b08b4f',
+    roughness: 0.42,
+    metalness: 0.45,
+    flatShading: true,
+  });
+  const staffIronMat = new THREE.MeshStandardMaterial({
+    color: '#2b2733',
+    roughness: 0.55,
+    metalness: 0.4,
+    flatShading: true,
+  });
+  staffMat.map = getWoodTexture();
+  staffMat.bumpMap = staffMat.map;
+  staffMat.bumpScale = 0.03;
+  materials.push(staffDeep, staffWrapMat, staffMetalMat, staffIronMat, vineMat);
+
+  // El asta se afina hacia la punta y lleva contera, puño envuelto y
+  // abrazaderas de latón: la misma gramática en los seis bastones.
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.044, 0.072, 2.62, 7, 1), staffMat);
+  shaft.position.y = 1.35;
   staffArt.add(shaft);
 
+  const buttCap = new THREE.Mesh(new THREE.LatheGeometry([
+    new THREE.Vector2(0.0, 0.0),
+    new THREE.Vector2(0.058, 0.0),
+    new THREE.Vector2(0.082, 0.04),
+    new THREE.Vector2(0.086, 0.1),
+    new THREE.Vector2(0.068, 0.18),
+    new THREE.Vector2(0.0, 0.21),
+  ], 10), staffMetalMat);
+  buttCap.position.y = 0.035;
+  staffArt.add(buttCap);
+
+  for (const y of [0.95, 1.57]) {
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.076, 0.076, 0.036, 10), staffMetalMat);
+    band.position.y = y;
+    staffArt.add(band);
+  }
+  // Puño: manguito de cuero con surcos y una costura en hélice. Se agarra con
+  // la mano entera y se lee como cuero, no como una rosca metálica.
+  const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.063, 0.067, 0.58, 9), staffWrapMat);
+  sleeve.position.y = 1.29;
+  staffArt.add(sleeve);
+  for (let i = 0; i < 5; i++) {
+    const groove = new THREE.Mesh(new THREE.TorusGeometry(0.065, 0.007, 4, 10), staffDeep);
+    groove.rotation.x = Math.PI / 2;
+    groove.position.y = 1.05 + i * 0.12;
+    staffArt.add(groove);
+  }
+  const seam = [];
+  for (let k = 0; k <= 24; k++) {
+    const t = k / 24;
+    const angle = t * Math.PI * 2 * 3.4;
+    seam.push(new THREE.Vector3(Math.cos(angle) * 0.066, 1.02 + t * 0.54, Math.sin(angle) * 0.066));
+  }
+  staffArt.add(new THREE.Mesh(tubeFromPoints(seam, 0.008, 3), staffDeep));
+  for (const [x, y, z, r] of [[0.05, 0.7, 0.008, 0.05], [-0.045, 2.2, -0.016, 0.04]]) {
+    const knot = new THREE.Mesh(new THREE.SphereGeometry(r, 6, 4), staffMat);
+    knot.position.set(x, y, z);
+    staffArt.add(knot);
+  }
+
+  // La gema es el único punto saturado del bastón: el emisivo va contenido para
+  // que el tone mapping no la lave a blanco y el color se lea a distancia.
+  const gemColor = new THREE.Color(look.magic);
   const orbMat = new THREE.MeshStandardMaterial({
-    color: look.magic,
-    emissive: new THREE.Color(look.magic),
-    emissiveIntensity: 1.8,
-    roughness: 0.3,
-    metalness: 0.15,
+    color: gemColor.clone().multiplyScalar(0.62),
+    emissive: gemColor.clone(),
+    emissiveIntensity: 0.38,
+    roughness: 0.34,
+    metalness: 0,
     flatShading: true,
   });
   materials.push(orbMat);
 
+  // Cabeza del bastón: un engarce de latón y, sobre él, la gema. Los seis
+  // comparten el orden contera → asta → puño → abrazadera → engarce → gema,
+  // y solo cambia la pieza que la sostiene, para que se lean como un taller.
+  const headBase = 2.6;
+  const addSocket = (radius = 0.095, height = 0.22, y = headBase) => {
+    const cup = new THREE.Mesh(new THREE.LatheGeometry([
+      new THREE.Vector2(0.0, height * 0.02),
+      new THREE.Vector2(radius * 0.66, 0.0),
+      new THREE.Vector2(radius * 0.74, height * 0.1),
+      new THREE.Vector2(radius * 0.86, height * 0.46),
+      new THREE.Vector2(radius * 1.06, height * 0.72),
+      new THREE.Vector2(radius * 1.02, height * 0.82),
+      new THREE.Vector2(radius * 0.7, height * 0.86),
+      new THREE.Vector2(radius * 0.56, height * 0.58),
+      new THREE.Vector2(0.0, height * 0.44),
+    ], 12), staffMetalMat);
+    cup.position.y = y;
+    staffArt.add(cup);
+    return cup;
+  };
+  // Engaste de joyería: dientes cortos alrededor de la base de la gema.
+  const addBezel = (radius, y, count = 6, height = 0.14, material = staffMetalMat) => {
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2;
+      const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.022, height, 4), material);
+      tooth.position.set(Math.cos(angle) * radius, y + height * 0.5, Math.sin(angle) * radius);
+      tooth.rotation.y = -angle;
+      staffArt.add(tooth);
+    }
+  };
+  const addGem = (y, size, tall = 1.5, { material = orbMat, shape = 'shard' } = {}) => {
+    const gem = new THREE.Mesh(
+      shape === 'orb' ? new THREE.IcosahedronGeometry(size, 0) : new THREE.OctahedronGeometry(size, 0),
+      material
+    );
+    gem.position.y = y;
+    if (shape === 'shard') gem.scale.set(0.78, tall, 0.78);
+    staffArt.add(gem);
+    return gem;
+  };
+
   let orb = null;
-  let orbY = 2.94;
+  let glowAnchor = null;
+  let glowScale = null;
   switch (look.staff) {
     case 'wood': {
-      orb = new THREE.Mesh(new THREE.SphereGeometry(0.19, 8, 6), staffMat);
-      orb.position.y = orbY;
-      staffArt.add(orb);
-      for (let i = 0; i < 3; i++) {
-        const knot = new THREE.Mesh(new THREE.SphereGeometry(0.1, 6, 5), staffMat);
-        knot.position.set((i - 1) * 0.14, orbY + 0.16 + (i % 2) * 0.1, 0);
-        staffArt.add(knot);
-      }
-      break;
-    }
-    case 'moon': {
-      orb = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.075, 6, 18, Math.PI * 1.35), staffMat);
-      orb.position.y = orbY;
-      orb.rotation.z = Math.PI * 0.35;
-      staffArt.add(orb);
-      const star = new THREE.Mesh(GEO.shard, orbMat);
-      star.position.y = orbY;
-      star.scale.setScalar(0.75);
-      staffArt.add(star);
-      break;
-    }
-    case 'sun': {
-      orb = new THREE.Mesh(GEO.orb, orbMat);
-      orb.position.y = orbY;
-      orb.scale.setScalar(0.95);
-      staffArt.add(orb);
-      for (let i = 0; i < 8; i++) {
-        const angle = (i / 8) * Math.PI * 2;
-        const ray = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.3, 4), magicMat);
-        ray.position.set(Math.cos(angle) * 0.33, orbY + Math.sin(angle) * 0.33, 0);
-        ray.rotation.z = angle - Math.PI / 2;
-        staffArt.add(ray);
-      }
-      break;
-    }
-    case 'skull': {
-      orb = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), darkMat);
-      orb.position.y = orbY;
-      orb.scale.set(1, 0.95, 0.9);
-      staffArt.add(orb);
-      const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, 0.18), darkMat);
-      jaw.position.y = orbY - 0.2;
-      staffArt.add(jaw);
-      for (const side of [-1, 1]) {
-        const eye = new THREE.Mesh(GEO.glow, orbMat);
-        eye.position.set(side * 0.09, orbY + 0.04, 0.16);
-        eye.scale.setScalar(0.55);
-        staffArt.add(eye);
-      }
-      break;
-    }
-    case 'lotus': {
-      orb = new THREE.Mesh(GEO.orb, orbMat);
-      orb.position.y = orbY;
-      staffArt.add(orb);
-      for (let i = 0; i < 6; i++) {
-        const angle = (i / 6) * Math.PI * 2;
-        const petal = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.42, 4), magicMat);
-        petal.position.set(Math.cos(angle) * 0.24, orbY - 0.16, Math.sin(angle) * 0.24);
-        petal.rotation.set(Math.cos(angle) * 0.75, 0, Math.sin(angle) * 0.75);
-        staffArt.add(petal);
-      }
-      break;
-    }
-    case 'rune': {
-      orb = new THREE.Mesh(GEO.orb, orbMat);
-      orb.position.y = orbY;
-      orb.scale.setScalar(0.85);
-      staffArt.add(orb);
-      for (let i = 0; i < 2; i++) {
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.34 + i * 0.08, 0.022, 5, 20), magicMat);
-        ring.position.y = orbY;
-        ring.rotation.set(Math.PI / 2 + i * 0.5, i * 0.7, 0);
-        staffArt.add(ring);
-      }
-      break;
-    }
-    case 'branch': {
-      orb = new THREE.Mesh(GEO.orb, orbMat);
-      orb.position.y = 2.9;
-      staffArt.add(orb);
-      for (const side of [-1, 1]) {
-        const branch = new THREE.Mesh(GEO.smallCyl, staffMat);
-        branch.position.set(side * 0.13, 3.02, 0);
-        branch.rotation.z = side * 0.55;
-        staffArt.add(branch);
-      }
+      // Madera viva: raíces de la misma madera que abren la gema.
+      addSocket(0.088, 0.22, 2.54);
+      addBezel(0.118, 2.68, 5, 0.16, staffMat);
+      orb = addGem(2.98, 0.2, 1.75);
       break;
     }
     case 'fire': {
-      orb = new THREE.Mesh(GEO.orb, orbMat);
-      orb.position.y = 2.95;
-      orb.scale.set(1.2, 1.4, 1.2);
-      staffArt.add(orb);
-      for (let i = 0; i < 3; i++) {
-        const flame = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.35, 5), orbMat);
-        flame.position.set((i - 1) * 0.1, 3.16 + (i % 2) * 0.08, 0);
-        flame.rotation.z = (i - 1) * 0.35;
+      // Brasero de latón con una corona de llamas y un ascua encendida dentro.
+      const bowl = new THREE.Mesh(new THREE.LatheGeometry([
+        new THREE.Vector2(0, 0),
+        new THREE.Vector2(0.09, 0.01),
+        new THREE.Vector2(0.16, 0.08),
+        new THREE.Vector2(0.185, 0.17),
+        new THREE.Vector2(0.17, 0.19),
+        new THREE.Vector2(0.1, 0.11),
+        new THREE.Vector2(0, 0.08),
+      ], 12), staffMetalMat);
+      bowl.position.y = 2.56;
+      staffArt.add(bowl);
+      // Llama: perfil de gota (lleno en la base y afilado arriba), no una púa.
+      const flameGeometry = (height, radius) => new THREE.LatheGeometry([
+        new THREE.Vector2(0.0, 0),
+        new THREE.Vector2(radius * 0.55, height * 0.07),
+        new THREE.Vector2(radius, height * 0.34),
+        new THREE.Vector2(radius * 0.78, height * 0.6),
+        new THREE.Vector2(radius * 0.42, height * 0.82),
+        new THREE.Vector2(radius * 0.14, height * 0.94),
+        new THREE.Vector2(0.0, height),
+      ], 7);
+      const flameMat = new THREE.MeshStandardMaterial({
+        color: gemColor.clone().multiplyScalar(0.6),
+        emissive: gemColor.clone(),
+        emissiveIntensity: 0.5,
+        roughness: 0.72,
+        metalness: 0,
+        flatShading: true,
+      });
+      materials.push(flameMat);
+      for (let i = 0; i < 4; i++) {
+        const angle = (i / 4) * Math.PI * 2 + 0.5;
+        const flame = new THREE.Mesh(
+          flameGeometry(0.34 + (i % 2) * 0.12, 0.062 + (i % 2) * 0.012),
+          flameMat
+        );
+        flame.position.set(Math.cos(angle) * 0.05, 2.71, Math.sin(angle) * 0.05);
+        flame.rotation.set(Math.sin(angle) * 0.22, 0, -Math.cos(angle) * 0.22);
         staffArt.add(flame);
       }
+      const core = new THREE.Mesh(flameGeometry(0.5, 0.045), orbMat);
+      core.position.y = 2.72;
+      staffArt.add(core);
+      orb = addGem(2.86, 0.075, 1, { shape: 'orb' });
+      glowAnchor = 2.98;
+      glowScale = 0.52;
       break;
     }
     case 'ice': {
-      orb = new THREE.Mesh(GEO.orb, orbMat);
-      orb.position.y = 2.98;
-      orb.scale.set(1.1, 1.9, 1.1);
-      staffArt.add(orb);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.33, 0.03, 5, 16), staffMat);
-      ring.position.y = 2.7;
-      ring.rotation.x = Math.PI / 2;
-      staffArt.add(ring);
+      // Abanico de esquirlas: una central alta y cuatro que abren el ramillete.
+      addSocket(0.082, 0.19, 2.58);
+      addBezel(0.11, 2.7, 6, 0.12);
+      orb = addGem(3.04, 0.16, 2.4);
+      for (let i = 0; i < 4; i++) {
+        const angle = (i / 4) * Math.PI * 2 + 0.6;
+        const shard = addGem(2.94 + (i % 2) * 0.04, 0.075, 2.1 + (i % 2) * 0.45);
+        shard.position.x = Math.cos(angle) * 0.09;
+        shard.position.z = Math.sin(angle) * 0.09;
+        shard.rotation.set(Math.sin(angle) * 0.28, 0, -Math.cos(angle) * 0.28);
+      }
       break;
     }
     case 'roots': {
-      orb = new THREE.Mesh(GEO.orb, orbMat);
-      orb.position.y = 2.92;
-      orb.scale.setScalar(0.8);
-      staffArt.add(orb);
-      for (let i = 0; i < 3; i++) {
-        const root = new THREE.Mesh(new THREE.TorusGeometry(0.24 + i * 0.04, 0.035, 5, 12, Math.PI * 1.3), staffMat);
-        root.position.y = 2.84 + i * 0.05;
-        root.rotation.set(Math.PI / 2, i * 0.8, 0.4);
-        staffArt.add(root);
+      // Liana que sube por el asta y se enrosca en un nido de raíces.
+      const vine = [];
+      for (let k = 0; k <= 30; k++) {
+        const t = k / 30;
+        const angle = t * Math.PI * 2 * 3.2 + 0.6;
+        const radius = 0.074 - t * 0.012;
+        vine.push(new THREE.Vector3(Math.cos(angle) * radius, 1.62 + t * 0.94, Math.sin(angle) * radius));
+      }
+      staffArt.add(new THREE.Mesh(tubeFromPoints(vine, 0.019, 4), vineMat));
+      addSocket(0.085, 0.22, 2.58);
+      orb = addGem(2.94, 0.17, 1, { shape: 'orb' });
+      // Nido: un anillo de raíz bajo la gema y cuatro puntas que la abrazan.
+      const nest = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.026, 5, 14), vineMat);
+      nest.position.y = 2.79;
+      nest.rotation.x = Math.PI / 2;
+      staffArt.add(nest);
+      for (let i = 0; i < 4; i++) {
+        const angle = (i / 4) * Math.PI * 2 + 0.9;
+        const claw = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.15, 4), staffDeep);
+        claw.position.set(Math.cos(angle) * 0.135, 2.87, Math.sin(angle) * 0.135);
+        claw.rotation.y = -angle;
+        staffArt.add(claw);
       }
       break;
     }
     case 'dark': {
-      orb = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), darkMat);
-      orb.position.y = 2.96;
-      staffArt.add(orb);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.03, 5, 18), orbMat);
-      ring.position.y = 2.96;
-      ring.rotation.x = Math.PI / 2.4;
+      // Hierro negro: la gema flota dentro de un anillo forjado, sin garra.
+      addSocket(0.085, 0.2, 2.56);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.013, 5, 18), staffIronMat);
+      ring.position.y = 2.98;
+      ring.rotation.set(0.16, 0.42, 0.1);
       staffArt.add(ring);
+      const keeper = new THREE.Mesh(new THREE.TorusGeometry(0.052, 0.013, 5, 10), staffMetalMat);
+      keeper.position.y = 2.77;
+      keeper.rotation.x = Math.PI / 2;
+      staffArt.add(keeper);
+      orb = addGem(2.98, 0.17, 1, { shape: 'orb' });
       break;
     }
     case 'crystal':
     default: {
-      orb = new THREE.Mesh(GEO.orb, orbMat);
-      orb.position.y = 2.98;
-      orb.scale.setScalar(1.15);
-      staffArt.add(orb);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.025, 5, 16), magicMat);
-      ring.position.y = 2.78;
-      ring.rotation.x = Math.PI / 2;
-      staffArt.add(ring);
+      // Espolón de cristal engastado en latón, con dientes de joyería.
+      addSocket(0.08, 0.26, 2.54);
+      addBezel(0.12, 2.68, 6, 0.15);
+      orb = addGem(2.98, 0.195, 2.05);
       break;
     }
   }
   if (!orb) {
     orb = new THREE.Mesh(GEO.glow, orbMat);
-    orb.position.y = orbY;
+    orb.position.y = 2.98;
     staffArt.add(orb);
   }
-
-  // La decoración de la punta nació para un mago de cabeza grande: se encoge
-  // alrededor del remate del mango para que el orbe no tape media cabeza.
-  const staffHead = new THREE.Group();
-  staffHead.scale.setScalar(0.55);
-  staffHead.position.y = 2.85 * (1 - 0.55);
-  for (const child of [...staffArt.children]) {
-    if (child !== shaft) staffHead.add(child);
-  }
-  staffArt.add(staffHead);
+  orb.name = 'Gema';
 
   const glowMat = new THREE.SpriteMaterial({
     map: getGlowTexture(),
@@ -1122,11 +1237,31 @@ export function createWizard(look) {
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
-  materials.push(glowMat);
+  const haloMat = new THREE.SpriteMaterial({
+    map: getGlowTexture(),
+    color: look.magic,
+    transparent: true,
+    opacity: 0.3,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  materials.push(glowMat, haloMat);
+  // El halo se ajusta al tamaño de la gema (el mismo brillo en una esquirla
+  // alta que en un orbe) y se centra en ella, no en el engarce.
+  orb.geometry.computeBoundingSphere();
+  const gemRadius = orb.geometry.boundingSphere.radius * Math.max(orb.scale.x, orb.scale.y, orb.scale.z);
+  const glowBase = glowScale ?? gemRadius * 1.6;
+  const haloBase = glowBase * 1.45;
   const glow = new THREE.Sprite(glowMat);
-  glow.position.set(0, orbY + 0.06, 0);
-  glow.scale.setScalar(1.15);
-  staffHead.add(glow);
+  glow.position.copy(orb.position);
+  if (glowAnchor !== null) glow.position.y = glowAnchor;
+  glow.position.y += gemRadius * 0.12;
+  glow.scale.setScalar(glowBase);
+  staffArt.add(glow);
+  const halo = new THREE.Sprite(haloMat);
+  halo.position.copy(glow.position);
+  halo.scale.setScalar(haloBase);
+  staffArt.add(halo);
 
   // --------------------------------------------------------------- esqueleto
   let model = null;
@@ -1222,9 +1357,10 @@ export function createWizard(look) {
     magicMat.emissive.set(magic);
     magicMat.emissiveIntensity = 0.4 + emissive;
     darkMat.color.set(robe).multiplyScalar(0.35);
-    orbMat.color.set(orbColor);
+    orbMat.color.set(orbColor).multiplyScalar(0.62);
     orbMat.emissive.set(orbColor);
     glowMat.color.set(orbColor);
+    haloMat.color.set(orbColor);
 
     hatPivot.visible = adminFlag('look.hatVisible', true);
     staffGroup.visible = adminFlag('look.staffVisible', true);
@@ -1473,9 +1609,10 @@ export function createWizard(look) {
     },
     setElement(cssColor) {
       currentElement = cssColor;
-      orbMat.color.set(cssColor);
+      orbMat.color.set(cssColor).multiplyScalar(0.62);
       orbMat.emissive.set(cssColor);
       glowMat.color.set(cssColor);
+      haloMat.color.set(cssColor);
     },
     flashCast() {
       // Debe cubrir el clip completo (1,1 s) o el gesto se corta a la mitad.
@@ -1545,11 +1682,13 @@ export function createWizard(look) {
 
       if (!dead) {
         const magicGlow = adminValue('look.magicGlow', 1);
-        glow.scale.setScalar((1.1 + Math.sin(time * 3) * 0.08) * magicGlow);
-        glow.material.opacity = Math.min(1, 0.85 * magicGlow);
-        orbMat.emissiveIntensity = 1.8 * magicGlow;
+        glow.scale.setScalar(glowBase * (1 + Math.sin(time * 3) * 0.05) * magicGlow);
+        glow.material.opacity = Math.min(1, 0.42 * magicGlow);
+        halo.scale.setScalar(haloBase * (1 + Math.sin(time * 1.7 + 0.8) * 0.05) * magicGlow);
+        halo.material.opacity = 0.09 * magicGlow;
+        orbMat.emissiveIntensity = 0.38 * magicGlow;
         orb.rotation.y = time * 0.9;
-        orb.rotation.x = Math.sin(time * 0.7) * 0.15;
+        orb.rotation.x = Math.sin(time * 0.7) * 0.06;
       }
     },
     dispose() {
