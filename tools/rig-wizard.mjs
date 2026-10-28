@@ -1228,6 +1228,7 @@ const atlas = baseRaw
   ? await sharp(baseRaw).raw().toBuffer({ resolveWithObject: true })
   : null;
 const skinVotes = new Uint8Array(triangleCount);
+const clothVotes = new Uint8Array(triangleCount);
 if (atlas) {
   const { data, info } = atlas;
   // En glTF la esquina (0,0) de las UV es la superior izquierda de la imagen.
@@ -1246,8 +1247,21 @@ if (atlas) {
     // son claros pero casi neutros, y el castaño oscuro cae por luminancia.
     return luma > 0.42 && saturation > 0.18;
   };
+  // La túnica está pintada en crema (luminancia ~0,8) y el pantalón y las
+  // botas en marrón (~0,3). El corte por altura partía el pantalón por la
+  // cadera y teñía su mitad superior con el color de la ropa; votar el color
+  // del atlas deja la tela entera en la túnica y el pantalón entero en el
+  // detalle, sin mezclar tonos.
+  const isClothAt = (u, v) => {
+    const x = Math.round((u - Math.floor(u)) * (info.width - 1));
+    const y = Math.round((v - Math.floor(v)) * (info.height - 1));
+    const i = (y * info.width + x) * info.channels;
+    const luma = (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
+    return luma > 0.56;
+  };
   for (let t = 0; t < triangleCount; t++) {
-    let votes = 0;
+    let skin = 0;
+    let cloth = 0;
     let uSum = 0;
     let vSum = 0;
     for (let corner = 0; corner < 3; corner++) {
@@ -1256,14 +1270,20 @@ if (atlas) {
       const v = uvs[vertex * 2 + 1];
       uSum += u;
       vSum += v;
-      if (isSkinAt(u, v)) votes++;
+      if (isSkinAt(u, v)) skin++;
+      if (isClothAt(u, v)) cloth++;
     }
-    if (isSkinAt(uSum / 3, vSum / 3)) votes++;
-    skinVotes[t] = votes;
+    const cu = uSum / 3;
+    const cv = vSum / 3;
+    if (isSkinAt(cu, cv)) skin++;
+    if (isClothAt(cu, cv)) cloth++;
+    skinVotes[t] = skin;
+    clothVotes[t] = cloth;
   }
 }
 // Sin atlas se vuelve al reparto por cajas de siempre.
 const isSkinTriangle = (t) => (atlas ? skinVotes[t] >= 2 : true);
+const isClothTriangle = (t) => (atlas ? clothVotes[t] >= 2 : true);
 
 // Orejas: quedan fuera de la caja de la cara, así que el reparto las metía en
 // el pelo y cambiaban de color con él. Son piezas sueltas en los laterales de
@@ -1329,8 +1349,10 @@ for (let t = 0; t < triangleCount; t++) {
   else if (headish || neckish) {
     region = coreFace || isSkinTriangle(t) ? REGION.SKIN : REGION.HAIR;
   } else if (earSkin[t] && isSkinTriangle(t)) region = REGION.SKIN;
-  else if (cy >= 0.8 && cy <= 1.66) region = REGION.ROBE;
-  else if (cy > 1.3) region = isSkinTriangle(t) ? REGION.ROBE : REGION.HAIR;
+  // La tela la decide el color pintado: crema claro es túnica; marrón es
+  // pantalón, cinturón o botas y conserva su textura original.
+  else if (cy >= 0.8 && cy <= 1.66) region = isClothTriangle(t) ? REGION.ROBE : REGION.DETAIL;
+  else if (cy > 1.3) region = isClothTriangle(t) ? REGION.ROBE : REGION.HAIR;
   else region = REGION.DETAIL;
 
   triRegion[t] = region;
