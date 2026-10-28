@@ -191,7 +191,7 @@ un separador lateral en las piernas para que una pierna no arrastre a la otra al
 El hueso `Fingers` de cada mano recibe los vértices que pasan de la muñeca y cierra el puño
 alrededor del bastón; sin él las manos quedaban siempre abiertas.
 
-**Animaciones**: `idle` (respiración, reparto de peso y sigilo con la mano libre), `walk`
+**Animaciones**: `idle` (respiración, reparto de peso y la mano libre relajada junto a la cadera, con la palma hacia el muslo), `walk`
 (marcha de 1,4 s con el bastón estable y la mano libre tejiendo), `run` (carrera inclinada con
 vuelo), `start`/`stop` (entrada y frenada que empalman con el contacto del ciclo), `cast`
 (el torso se enrosca, el bastón sube como foco y la palma empuja dando un paso), `hit` y
@@ -210,7 +210,9 @@ para que el taller pueda recolorear la ropa, la piel y el pelo sin tocar el pant
 botas. La tela se separa por el color pintado en el atlas (crema para la túnica, marrón para
 el pantalón y las botas), no por altura: el corte anterior partía el pantalón por la cadera
 y teñía su mitad superior. Las manos se detectan por componente (la palma queda dominada por
-el antebrazo) y se asignan a `Piel`, no a la túnica. En la cabeza el reparto piel/pelo lo decide el color
+el antebrazo) y se asignan a `Piel`, no a la túnica. El puño de la manga se remata y ciñe en
+la muñeca, porque el vuelo sobrante tapaba la palma al doblar la muñeca y la mano parecía
+teñida de túnica. En la cabeza el reparto piel/pelo lo decide el color
 pintado en el atlas —melocotón para piel, castaño y brillos fríos para pelo— votado en las
 esquinas de cada triángulo, con una caja de protección para ojos, nariz y boca. Así el
 flequillo y las patillas cambian con el pelo y el cuello se queda en piel. `Tunica`, `Piel`

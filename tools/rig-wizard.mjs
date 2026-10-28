@@ -194,10 +194,10 @@ function quatFromEuler(x, y, z) {
   ];
 }
 
-// Postura de reposo: peso repartido, pecho alto, barbilla algo baja y la mano
-// libre abierta a la altura del esternón, como si sostuviera una esfera de
-// energía. El brazo del bastón queda relajado pero con el codo vivo, para que
-// la empuñadura no parezca un palo colgando.
+// Postura de reposo: peso repartido, pecho alto, barbilla algo baja. La mano
+// libre cae junto a la cadera con la muñeca recta y los dedos sueltos, para
+// que no parezca que sostiene una bandeja. El brazo del bastón queda relajado
+// pero con el codo vivo, y la muñeca solo lo justo para cerrar el puño.
 function basePose() {
   return {
     Root: { r: [0, 0, 0] },
@@ -209,13 +209,13 @@ function basePose() {
     Shoulder_L: { r: [0, 0.015, 0.028] },
     UpperArm_L: { r: [0, 0.28, -1.26] },
     Forearm_L: { r: [0, -1.35, -0.3] },
-    Hand_L: { r: [0.61, 0.12, 0.1] },
-    Fingers_L: { r: [0, 0, 1.15] },
+    Hand_L: { r: [0.3, 0.12, 0.08] },
+    Fingers_L: { r: [0, 0, 1.08] },
     Shoulder_R: { r: [0, -0.015, 0.055] },
-    UpperArm_R: { r: [0, 1.0, 0.85] },
-    Forearm_R: { r: [0, 1.75, -0.3] },
-    Hand_R: { r: [0.14, 0.16, -0.34] },
-    Fingers_R: { r: [0, 0, -0.3] },
+    UpperArm_R: { r: [0.02, 0.3, 0.92] },
+    Forearm_R: { r: [0, 0.4, -0.06] },
+    Hand_R: { r: [0.02, 0.04, -0.12] },
+    Fingers_R: { r: [-0.04, 0, -0.3] },
     UpperLeg_L: { r: [-0.03, 0.045, 0.02] },
     LowerLeg_L: { r: [0.075, 0, 0] },
     Foot_L: { r: [-0.02, -0.055, 0] },
@@ -256,7 +256,8 @@ function mirrorLegs(step) {
 
 // ------------------------------------------------------------------- idle
 // Respiración amplia, peso que viaja de un pie al otro y la mano libre
-// dibujando un sigilo pequeño. La cabeza escanea el entorno con calma.
+// acompañando el balanceo. La cabeza escanea el entorno con calma.
+const FREE_HAND_ROLL = 1.15;
 const IDLE_DURATION = 4;
 
 function idleAt(phase) {
@@ -280,17 +281,17 @@ function idleAt(phase) {
     Shoulder_L: [0, 0.015, 0.028 + 0.014 * sway],
     UpperArm_L: [0, 0.28 + 0.03 * Math.sin(p + 0.7), -1.26 - 0.016 * breathe],
     Forearm_L: [0, -1.35 + 0.05 * breathe, -0.3],
-    Hand_L: [0.61 + 0.04 * breathe, 0.12, 0.1],
-    Fingers_L: [0, 0, 1.15 + 0.05 * breathe],
+    Hand_L: [0.3 + 0.04 * breathe, 0.12, 0.08],
+    Fingers_L: [0, 0, 1.08 + 0.04 * breathe],
     Shoulder_R: [0, -0.015 - 0.014 * sway, 0.055 + 0.016 * sway],
-    UpperArm_R: [0, 1.0 + 0.06 * sway + 0.02 * flick, 0.85 - 0.04 * breathe],
-    Forearm_R: [0, 1.75 + 0.1 * orbit + 0.06 * flick, -0.3 - 0.06 * sway],
+    UpperArm_R: [0.02, 0.3 + 0.04 * sway + 0.015 * flick, 0.92 - 0.018 * breathe],
+    Forearm_R: [0, 0.4 + 0.05 * orbit + 0.03 * flick, -0.06 - 0.03 * sway],
     Hand_R: [
-      0.14 + 0.16 * orbit + 0.07 * flick,
-      0.16 + 0.22 * Math.sin(p + 0.6),
-      -0.34 - 0.14 * Math.cos(p + 0.6) + 0.06 * flick,
+      0.02 + 0.05 * orbit + 0.03 * flick,
+      0.04 + 0.08 * Math.sin(p + 0.6),
+      -0.12 - 0.05 * Math.cos(p + 0.6) + 0.03 * flick,
     ],
-    Fingers_R: [0, 0, -0.18 + 0.14 * Math.sin(p + 1.2)],
+    Fingers_R: [-0.04, 0, -0.3 + 0.08 * Math.sin(p + 1.2)],
     UpperLeg_L: [-0.03 + 0.018 * sway, 0.045, 0.02],
     LowerLeg_L: [0.075 - 0.02 * sway, 0, 0],
     UpperLeg_R: [0.035 - 0.018 * sway, -0.05, -0.02],
@@ -974,7 +975,10 @@ function bakeClip(clip) {
     times[frame] = t;
     for (const bone of ANIMATED_BONES) {
       const [x, y, z] = sampleTrack(tracks.get(`${bone.name}.r`), t);
-      rotations.get(bone.name).set(quatFromEuler(x, y, z), frame * 4);
+      // La mano libre rueda sobre el antebrazo para que la palma mire al muslo
+      // y no al frente: con la muñeca de frente parecía un maniquí.
+      const roll = bone.name === 'Hand_R' ? FREE_HAND_ROLL : 0;
+      rotations.get(bone.name).set(quatFromEuler(x + roll, y, z), frame * 4);
     }
     const loc = sampleTrack(hipsTrack, t);
     const hips = boneDefs.find((bone) => bone.name === 'Hips');
@@ -1418,6 +1422,32 @@ for (let t = 0; t < triangleCount; t++) {
 
   triRegion[t] = region;
   regionCounts[region]++;
+}
+
+// El puño de la manga flotaba sobre la palma cuando la muñeca se doblaba, y
+// desde lejos la mano parecía teñida de túnica. Se remata el puño justo en la
+// muñeca y se ciñe un poco, para que la mano quede siempre a la vista.
+{
+  const cuffVerts = new Set();
+  for (let t = 0; t < triangleCount; t++) {
+    if (triRegion[t] !== REGION.ROBE) continue;
+    for (let corner = 0; corner < 3; corner++) {
+      const v = indices[t * 3 + corner];
+      const x = positions[v * 3];
+      const y = positions[v * 3 + 1];
+      const z = positions[v * 3 + 2];
+      if (Math.abs(x) > 0.752 && Math.abs(y - 1.39) < 0.1 && Math.abs(z + 0.02) < 0.13) cuffVerts.add(v);
+    }
+  }
+  for (const v of cuffVerts) {
+    const x = positions[v * 3];
+    const y = positions[v * 3 + 1];
+    const z = positions[v * 3 + 2];
+    positions[v * 3] = Math.sign(x) * 0.78;
+    positions[v * 3 + 1] = 1.39 + (y - 1.39) * 0.94;
+    positions[v * 3 + 2] = -0.02 + (z + 0.02) * 0.94;
+  }
+  console.log(`  puños: ${cuffVerts.size} vértices ceñidos`);
 }
 
 // Atlas neutro para las zonas teñibles (túnica, piel y pelo). El original
