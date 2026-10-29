@@ -58,7 +58,12 @@ admin = createAdminPanel({
   getInitialLook: () => ui.getLook(),
   applyValues: (values) => applyAdminValues(values),
   onOpenChange: (open) => {
-    if (open) keys.clear();
+    if (open) {
+      keys.clear();
+      // El panel necesita el cursor: se suelta el puntero de la vista en
+      // primera persona y se recupera al volver a la partida con un clic.
+      document.exitPointerLock?.();
+    }
   },
   debugInfo: () => {
     const self = gameView.states.get(selfId);
@@ -316,7 +321,21 @@ function setPaused(value) {
   }
   paused = value;
   ui.showPause(value);
-  if (value) keys.clear();
+  if (value) {
+    keys.clear();
+    document.exitPointerLock?.();
+  } else if (gameView.firstPerson && document.pointerLockElement !== sceneCanvas) {
+    // Al reanudar en primera persona se recupera el puntero: el clic del botón
+    // cuenta como gesto del usuario y el navegador lo permite.
+    requestLookLock();
+  }
+}
+
+function requestLookLock() {
+  const request = sceneCanvas.requestPointerLock?.();
+  // En navegadores antiguos devuelve undefined; en los nuevos, una promesa
+  // que se rechaza si el documento aún no puede capturar el puntero.
+  request?.catch?.(() => {});
 }
 
 // ------------------------------------------------------------------- red
@@ -505,7 +524,8 @@ window.addEventListener('keydown', (event) => {
   if (event.repeat) return;
   keys.add(event.code);
   if (paused) return;
-  if (event.code === 'Digit1') sendSelect(0);
+  if (event.code === 'KeyV') toggleView();
+  else if (event.code === 'Digit1') sendSelect(0);
   else if (event.code === 'Digit2') sendSelect(1);
   else if (event.code === 'Digit3') sendCombo();
   else if (event.code === 'Space') {
@@ -530,7 +550,29 @@ window.addEventListener('blur', () => {
 window.addEventListener('mousemove', (event) => {
   mouse.x = event.clientX;
   mouse.y = event.clientY;
+  if (!gameView.firstPerson || paused || admin.isOpen() || ui.currentScreen() !== 'none') return;
+  gameView.look(event.movementX || 0, event.movementY || 0);
 });
+
+// Si el navegador suelta el puntero (Esc, cambio de ventana), la partida se
+// pausa igual que con Esc: sin bloqueo la cámara dejaría de responder.
+document.addEventListener('pointerlockchange', () => {
+  if (!gameView.firstPerson || document.pointerLockElement === sceneCanvas) return;
+  if (paused || matchEnded || admin.isOpen() || ui.currentScreen() !== 'none') return;
+  setPaused(true);
+});
+
+function toggleView() {
+  if (!inMatch || matchEnded) return;
+  const firstPerson = gameView.toggleFirstPerson();
+  if (firstPerson) {
+    requestLookLock();
+    hud.toast('Primera persona · V cambia la vista', '#8fe8ff');
+  } else {
+    document.exitPointerLock?.();
+    hud.toast('Vista elevada', '#8fe8ff');
+  }
+}
 
 sceneCanvas.addEventListener('contextmenu', (event) => event.preventDefault());
 sceneCanvas.addEventListener('mousedown', (event) => {
@@ -539,6 +581,11 @@ sceneCanvas.addEventListener('mousedown', (event) => {
   if (!selfSnapshot || !selfSnapshot.al) return;
   if (event.button !== 0 && event.button !== 2) return;
   event.preventDefault();
+  // El primer clic en primera persona captura el puntero en vez de lanzar.
+  if (gameView.firstPerson && document.pointerLockElement !== sceneCanvas) {
+    requestLookLock();
+    return;
+  }
   const ability = event.button === 0 ? 0 : 1;
   const slot = selfSnapshot.act;
   const power = selfSnapshot.sl[slot];
@@ -756,7 +803,10 @@ function updateAimCursor() {
     ui.currentScreen() === 'none' &&
     !!selfSnapshot &&
     !!selfSnapshot.al;
-  hud.setAim(mouse.x, mouse.y, color, visible);
+  // En primera persona la cruz vive en el centro: ahí apunta la cámara.
+  const aimX = gameView.firstPerson ? window.innerWidth / 2 : mouse.x;
+  const aimY = gameView.firstPerson ? window.innerHeight / 2 : mouse.y;
+  hud.setAim(aimX, aimY, color, visible);
 }
 
 function loop(now) {

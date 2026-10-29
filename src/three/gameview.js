@@ -54,6 +54,12 @@ export class GameView {
     this.jumpTimer = 0;
     this.lastSnapshot = null;
     this.input = { up: false, down: false, left: false, right: false, sprint: false };
+    // Cámara en primera persona: se mira con el ratón (puntero bloqueado) y el
+    // hechizo sale hacia donde se mira, no hacia el cursor de la pantalla.
+    this.firstPerson = false;
+    this.fpYaw = 0;
+    this.fpPitch = -0.05;
+    this.fpBob = 0;
     this.spectateId = 0;
     this.matchActive = false;
     this.time = 0;
@@ -93,7 +99,7 @@ export class GameView {
 
   setAdmin(values) {
     this.admin = values || null;
-    const fov = this.adminValue('camera.fov', 52);
+    const fov = this.adminValue('camera.fov', 52) + (this.firstPerson ? 12 : 0);
     if (this.camera.fov !== fov) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
@@ -341,8 +347,10 @@ export class GameView {
 
   computeAim(clientX, clientY) {
     const rect = this.canvas.getBoundingClientRect();
-    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1);
+    // En primera persona se apunta con el centro de la vista (la cruz), como
+    // en un FPS: el cursor no decide el destino del hechizo.
+    const ndcX = this.firstPerson ? 0 : ((clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = this.firstPerson ? 0 : -(((clientY - rect.top) / rect.height) * 2 - 1);
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
     const plane = new THREE.Plane();
@@ -491,6 +499,9 @@ export class GameView {
         while (diff < -Math.PI) diff += Math.PI * 2;
         state.yaw += diff * Math.min(1, dt * 10);
       }
+      // En primera persona el propio mago no se dibuja: la cámara está dentro
+      // de su cabeza y vería el interior del sombrero y de la cara.
+      if (state.isSelf) state.model.group.visible = !this.firstPerson;
       if (!state.alive && state.deadAt >= 0 && time - state.deadAt > 2.4) {
         state.model.group.visible = false;
       }
@@ -517,7 +528,7 @@ export class GameView {
         this.worldData.heightAt(selfState.x, selfState.z) + 0.16,
         selfState.z
       );
-      this.selfMarker.visible = selfState.alive;
+      this.selfMarker.visible = selfState.alive && !this.firstPerson;
       this.selfMarkerMaterial.opacity = 0.38 + Math.sin(time * 3) * 0.1;
     }
 
@@ -545,11 +556,75 @@ export class GameView {
     this.render();
   }
 
+  // Vista: alterna entre la cámara elevada de siempre y la primera persona.
+  // El FOV se abre un poco en primera persona para que el mundo no se sienta
+  // estrecho, y se restaura al volver.
+  toggleFirstPerson(force) {
+    const next = typeof force === 'boolean' ? force : !this.firstPerson;
+    if (next === this.firstPerson) return this.firstPerson;
+    this.firstPerson = next;
+    if (next) {
+      const dx = this.aim.x - this.selfPred.x;
+      const dz = this.aim.z - this.selfPred.z;
+      const state = this.states.get(this.selfId);
+      this.fpYaw = Math.hypot(dx, dz) > 0.5 ? Math.atan2(dx, dz) : state?.yaw || 0;
+      this.fpPitch = -0.06;
+      this.fpBob = 0;
+    } else {
+      document.exitPointerLock?.();
+    }
+    const fov = this.adminValue('camera.fov', 52) + (next ? 12 : 0);
+    if (this.camera.fov !== fov) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
+    return this.firstPerson;
+  }
+
+  // Giro de la vista con el ratón (movementX/Y del puntero bloqueado).
+  look(dx, dy) {
+    if (!this.firstPerson) return;
+    const sensitivity = 0.0021 * this.adminValue('camera.lookSpeed', 1);
+    this.fpYaw -= dx * sensitivity;
+    this.fpPitch = Math.max(-1.25, Math.min(1.1, this.fpPitch - dy * sensitivity));
+  }
+
   updateCamera(dt, immediate = false) {
     if (!this.worldData) return;
     let targetX = this.selfPred.x;
     let targetZ = this.selfPred.z;
     const selfState = this.states.get(this.selfId);
+    if (this.firstPerson && selfState && selfState.alive) {
+      // El ojo está a 0.645 de la altura del mago (modelo de 4.5 unidades). El
+      // balanceo es corto y vertical: sugiere el paso sin marear.
+      const groundY = this.worldData.heightAt(this.selfPred.x, this.selfPred.z);
+      const scale = this.characterScaleY();
+      const eye = new THREE.Vector3(this.selfPred.x, groundY + 2.9 * scale + this.jumpY, this.selfPred.z);
+      if (this.selfMoving && !this.frozen) {
+        this.fpBob += dt * 9.5;
+        eye.y += Math.sin(this.fpBob) * 0.045 * scale;
+      } else {
+        this.fpBob = 0;
+      }
+      const cos = Math.cos(this.fpPitch);
+      const direction = new THREE.Vector3(
+        Math.sin(this.fpYaw) * cos,
+        Math.sin(this.fpPitch),
+        Math.cos(this.fpYaw) * cos
+      );
+      const focus = eye.clone().addScaledVector(direction, 24);
+      if (!this.cameraLook) this.cameraLook = focus.clone();
+      if (immediate) {
+        this.camera.position.copy(eye);
+        this.cameraLook.copy(focus);
+      } else {
+        this.camera.position.lerp(eye, 1 - Math.exp(-dt * 18));
+        this.cameraLook.lerp(focus, 1 - Math.exp(-dt * 22));
+      }
+      this.camera.lookAt(this.cameraLook);
+      this.camera.updateMatrixWorld();
+      return;
+    }
     if (selfState && !selfState.alive) {
       const alive = [...this.states.values()].filter((s) => s.alive);
       alive.sort((a, b) => b.kills - a.kills);
@@ -628,6 +703,7 @@ export class GameView {
   }
 
   setZoom(delta) {
+    if (this.firstPerson) return;
     const min = this.adminValue('camera.minDistance', 18);
     const max = Math.max(min + 1, this.adminValue('camera.maxDistance', 60));
     this.zoom = Math.max(min, Math.min(max, this.zoom + delta));
@@ -765,6 +841,7 @@ export class GameView {
 
   clearMatch() {
     this.matchActive = false;
+    if (this.firstPerson) this.toggleFirstPerson(false);
     this.debugSignature = null;
     this.clearDebugGroup();
     this.jumpY = 0;
