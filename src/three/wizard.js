@@ -26,6 +26,72 @@ const TINTS = { Tunica: 'robe', Piel: 'skin', Pelo: 'hair' };
 // Tono al que se acerca el cuero de los gorros cuando se tiñe.
 const LEATHER_TONE = new THREE.Color('#4a3322');
 
+// El atlas de piel del GLB trae sombreado pintado: bajo la mandíbula hay una
+// banda grisácea que no responde a la luz y que, al teñir la piel, se lee como
+// una mancha sucia entre cara y cuello. Se aplana la iluminación de gran escala
+// (difuminado) y se conservan los rasgos finos (ojos, cejas, boca), que siguen
+// en la textura. Se hace una sola vez y se comparte entre todos los magos.
+let skinMapCache = null;
+function cleanSkinTexture(map) {
+  if (!map || !map.image || !map.image.width) return map;
+  if (skinMapCache && skinMapCache.source === map) return skinMapCache.texture;
+  const size = 512;
+  const lowSize = 16;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) return map;
+  context.drawImage(map.image, 0, 0, size, size);
+  const image = context.getImageData(0, 0, size, size);
+  const data = image.data;
+
+  const low = document.createElement('canvas');
+  low.width = lowSize;
+  low.height = lowSize;
+  const lowContext = low.getContext('2d', { willReadFrequently: true });
+  lowContext.imageSmoothingEnabled = true;
+  lowContext.drawImage(canvas, 0, 0, lowSize, lowSize);
+  const lowData = lowContext.getImageData(0, 0, lowSize, lowSize).data;
+  const luma = (i) => (0.2126 * lowData[i] + 0.7152 * lowData[i + 1] + 0.0722 * lowData[i + 2]) / 255;
+
+  // 0.86 deja la piel cerca del color elegido sin llegar a quemarla.
+  const target = 0.86;
+  for (let y = 0; y < size; y++) {
+    const gy = Math.min(lowSize - 1, Math.max(0, ((y + 0.5) / size) * lowSize - 0.5));
+    const y0 = Math.floor(gy);
+    const y1 = Math.min(lowSize - 1, y0 + 1);
+    const ty = gy - y0;
+    for (let x = 0; x < size; x++) {
+      const gx = Math.min(lowSize - 1, Math.max(0, ((x + 0.5) / size) * lowSize - 0.5));
+      const x0 = Math.floor(gx);
+      const x1 = Math.min(lowSize - 1, x0 + 1);
+      const tx = gx - x0;
+      const a = luma((y0 * lowSize + x0) * 4);
+      const b = luma((y0 * lowSize + x1) * 4);
+      const c = luma((y1 * lowSize + x0) * 4);
+      const d = luma((y1 * lowSize + x1) * 4);
+      const soft = (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+      const gain = Math.min(3, Math.max(0.6, target / Math.max(0.04, soft)));
+      const i = (y * size + x) * 4;
+      data[i] = Math.min(255, data[i] * gain);
+      data[i + 1] = Math.min(255, data[i + 1] * gain);
+      data[i + 2] = Math.min(255, data[i + 2] * gain);
+    }
+  }
+  context.putImageData(image, 0, 0);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.flipY = map.flipY;
+  texture.colorSpace = map.colorSpace;
+  texture.wrapS = map.wrapS;
+  texture.wrapT = map.wrapT;
+  texture.anisotropy = map.anisotropy;
+  texture.needsUpdate = true;
+  skinMapCache = { source: map, texture };
+  return texture;
+}
+
 let glowTexture = null;
 function getGlowTexture() {
   if (glowTexture) return glowTexture;
@@ -1340,7 +1406,9 @@ export function createWizard(look) {
       }
       if (material.emissive) {
         material.emissive.copy(material.color);
-        material.emissiveIntensity = emissive;
+        // La piel conserva un levante mínimo propio aunque el panel ponga el
+        // emisivo general a cero: el cuello nunca queda en sombra cerrada.
+        material.emissiveIntensity = Math.max(base.name === 'Piel' ? 0.06 : 0, emissive);
       }
     }
 
@@ -1449,6 +1517,16 @@ export function createWizard(look) {
             // color elegido manda y las luces y sombras del mechón se conservan.
             material.color.set(look[field]);
           }
+          if (material.name === 'Piel') {
+            // La banda oscura del cuello venía del sombreado pintado en el atlas
+            // (y el mapa de normales añadía grano). Se aplana la textura y se
+            // quita el normal map: la piel queda limpia y el color elegido se
+            // mantiene de la cara al cuello.
+            material.normalMap = null;
+            material.map = cleanSkinTexture(material.map);
+            material.emissive.copy(material.color).multiplyScalar(0.06);
+            material.emissiveIntensity = 1;
+          }
           material.roughness = Math.min(1, material.roughness ?? 0.9);
           object.material = material;
           materials.push(material);
@@ -1514,6 +1592,56 @@ export function createWizard(look) {
   let stopTimer = 0;
   let wasMoving = false;
   let dead = false;
+
+  // Mirada. Los ojos van pintados en la cara, así que el gesto nace del cuello:
+  // la cabeza abre el giro, el pecho lo acompaña un poco y, quieto, el mago
+  // reparte miradas a los lados en lugar de quedarse siempre de frente. Sin
+  // esto la cara se quedaba clavada aunque el cuerpo apuntara a otro lado.
+  const GAZE_YAW = 0.52;
+  const GAZE_PITCH = 0.26;
+  let gazeTargetYaw = 0;
+  let gazeTargetPitch = 0;
+  let gazeYaw = 0;
+  let gazePitch = 0;
+  let gazeHold = 0;
+  let glanceTimer = 1.4 + Math.random() * 2.4;
+
+  function updateGaze(dt, moving) {
+    const gain = adminFlag('anim.secondary', true) ? adminValue('anim.head', 1) : 0;
+    if (dead) {
+      gazeTargetYaw = 0;
+      gazeTargetPitch = 0;
+      gazeHold = 0;
+    } else if (gazeHold > 0) {
+      // Mirada fijada desde fuera (el taller, por ejemplo).
+      gazeHold = Math.max(0, gazeHold - dt);
+    } else if (!moving) {
+      glanceTimer -= dt;
+      if (glanceTimer <= 0) {
+        glanceTimer = 2.4 + Math.random() * 3.6;
+        if (Math.random() < 0.38) {
+          // Revisa el bastón de reojo.
+          gazeTargetYaw = (Math.random() < 0.5 ? 1 : -1) * 0.44;
+          gazeTargetPitch = 0.2;
+        } else {
+          gazeTargetYaw = (Math.random() * 2 - 1) * 0.4;
+          gazeTargetPitch = (Math.random() * 2 - 1) * 0.09;
+        }
+      }
+    } else {
+      // Al andar vuelve al frente, con un poco más de prisa que un giro normal.
+      const back = Math.min(1, dt * 2.6);
+      gazeTargetYaw *= 1 - back;
+      gazeTargetPitch *= 1 - back;
+    }
+    const ease = 1 - Math.exp(-dt * (gazeHold > 0 ? 8.5 : 4));
+    gazeYaw += (gazeTargetYaw - gazeYaw) * ease;
+    gazePitch += (gazeTargetPitch - gazePitch) * ease;
+    if (!bones.Head) return;
+    bones.Head.rotateY(gazeYaw * gain);
+    bones.Head.rotateX(-gazePitch * gain);
+    bones.Spine?.rotateY(gazeYaw * gain * 0.16);
+  }
 
   // Movimiento secundario procedural: se suma DESPUÉS del mixer, así que no
   // ensucia los clips ni se acumula entre fotogramas.
@@ -1624,6 +1752,17 @@ export function createWizard(look) {
     setDead() {
       dead = true;
     },
+    setGaze(yaw, pitch = 0) {
+      gazeTargetYaw = Math.max(-GAZE_YAW, Math.min(GAZE_YAW, yaw));
+      gazeTargetPitch = Math.max(-GAZE_PITCH, Math.min(GAZE_PITCH, pitch));
+      gazeHold = 0.25;
+    },
+    clearGaze() {
+      gazeTargetYaw = 0;
+      gazeTargetPitch = 0;
+      gazeHold = 0;
+      glanceTimer = 1.4 + Math.random() * 2.4;
+    },
     update(dt, time, moving, running = false) {
       castTimer = Math.max(0, castTimer - dt);
       hitTimer = Math.max(0, hitTimer - dt);
@@ -1659,6 +1798,7 @@ export function createWizard(look) {
       if (mixer && !paused) {
         mixer.update(dt);
         applySecondary(time, moving, running);
+        updateGaze(dt, moving);
       }
 
       const access = adminFlag('anim.secondary', true) ? adminValue('anim.accessory', 1) : 0;

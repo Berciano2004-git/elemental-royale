@@ -129,6 +129,14 @@ export function createWizardPreview() {
       const idle = Math.sin(now * 0.00055) * 0.42 + 0.16;
       wizard.group.rotation.y = spin + idle;
       wizard.group.position.y = Math.sin(now * 0.0012) * 0.035;
+      // El mago sigue con la cabeza al jugador mientras gira la plataforma: al
+      // personalizarlo siempre te está mirando, y al pasarte de lado el cuello
+      // se queda en su tope en vez de girar entero como un maniquí.
+      const dx = camera.position.x - wizard.group.position.x;
+      const dz = camera.position.z - wizard.group.position.z;
+      const headYaw = Math.atan2(dx, dz) - wizard.group.rotation.y;
+      const headPitch = Math.atan2(camera.position.y - wizard.height * 0.645, Math.hypot(dx, dz)) * 0.45;
+      wizard.setGaze?.(Math.atan2(Math.sin(headYaw), Math.cos(headYaw)), headPitch);
       wizard.update(dt, now * 0.001, false);
     }
     for (const shard of shards) {
