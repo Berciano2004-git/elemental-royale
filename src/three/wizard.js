@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import { createGripFist } from './fist.js';
 
 const MODEL_URL = `${import.meta.env.BASE_URL}models/mago.glb`;
 const MODEL_SCALE = 1.62;
@@ -28,14 +29,16 @@ const hatFit = (hat) => HAT_FIT[hat] ?? 0.86;
 const STAFF_SCALE = 0.62;
 const STAFF_GRIP = 1.32;
 
-// Agarre: la mano del mago nace abierta con los dedos paralelos al asta, así
-// que no puede abrazarla. Se rueda la muñeca lo justo para que la pinza quede
-// horizontal y se cierran los dedos sobre el bastón; el asta se compensa para
-// seguir vertical.
-const GRIP_ROLL = 0.52;
-const GRIP_CURL = -1.5;
-const GRIP_FOLD = 1.15;
-const GRIP_AXIS = new THREE.Vector3(1, 0, 0);
+// La mano del GLB es un guante abierto y el esqueleto solo tiene un hueso para
+// los cuatro dedos, así que no puede cerrarse con animación. El puño se modela
+// aparte (fist.js) y se cuelga del bastón; la mano original se encoge contra la
+// muñeca para que no asome por debajo.
+const HAND_HIDE_SCALE = 0.12;
+const GRIP_PARENT = 1 / HAND_HIDE_SCALE;
+// Distancia fija, en el marco del personaje, de la muñeca al centro del puño.
+const GRIP_OFFSET = new THREE.Vector3(0, -0.015, 0.075);
+// El origen del grupo del bastón queda por encima del centro del puño.
+const GRIP_LIFT = 0.05;
 
 const GEO = {
   shaft: new THREE.CylinderGeometry(0.06, 0.075, 2.85, 6),
@@ -651,8 +654,6 @@ function loadAsset() {
 
 const CLIPS = ['idle', 'walk', 'run', 'start', 'stop', 'cast', 'hit', 'death'];
 const ONE_SHOT = new Set(['start', 'stop', 'cast', 'hit', 'death']);
-const tempQuat = new THREE.Quaternion();
-const tempQuatB = new THREE.Quaternion();
 const tempEuler = new THREE.Euler();
 
 // Alarga un hueso sobre el eje en el que nace su hijo, sin engordarlo. Las
@@ -1491,6 +1492,9 @@ export function createWizard(look) {
   let current = null;
   let headBone = null;
   let handBone = null;
+  let skinMaterial = null;
+  let fistGroup = null;
+  let fistMaterial = null;
   let disposed = false;
   const actions = {};
   const bones = {};
@@ -1510,14 +1514,29 @@ export function createWizard(look) {
     const value = adminCfg ? adminCfg[key] : undefined;
     return typeof value === 'boolean' ? value : fallback;
   }
-  // Orientación de la empuñadura fijada una sola vez respecto a la mano: así
-  // el bastón se mueve con la muñeca (agarre real) en vez de quedarse clavado
-  // en vertical mientras la mano se separa de él.
-  const gripRoll = new THREE.Quaternion().setFromAxisAngle(GRIP_AXIS, GRIP_ROLL);
-  const staffGrip = new THREE.Quaternion();
-  const staffGripOffset = new THREE.Vector3(0.0305, 0.0325, 0.0051);
-  const gripTemp = new THREE.Quaternion();
+  // El bastón se coloca cada frame respecto a la muñeca, no respecto a la
+  // orientación de la mano: así el asta sigue vertical y el puño no se separa
+  // de la manga cuando el brazo gira.
+  const gripWorld = new THREE.Vector3();
+  const gripOffsetWorld = new THREE.Vector3();
+  const gripQuat = new THREE.Quaternion();
+  const rigQuat = new THREE.Quaternion();
+  const handQuat = new THREE.Quaternion();
   let staffReady = false;
+
+  function placeStaff(sway = 0, bob = 0) {
+    if (!handBone) return;
+    handBone.updateWorldMatrix(true, false);
+    handBone.getWorldPosition(gripWorld);
+    rig.getWorldQuaternion(rigQuat);
+    gripWorld.add(gripOffsetWorld.copy(GRIP_OFFSET).applyQuaternion(rigQuat));
+    gripWorld.y += GRIP_LIFT + bob;
+    staffGroup.position.copy(handBone.worldToLocal(gripWorld));
+    tempEuler.set(sway * 0.6, 0, sway);
+    gripQuat.setFromEuler(tempEuler).premultiply(rigQuat);
+    handBone.getWorldQuaternion(handQuat);
+    staffGroup.quaternion.copy(handQuat.invert().multiply(gripQuat));
+  }
 
   // ------------------------------------------------------- ajustes de admin
 
@@ -1590,9 +1609,20 @@ export function createWizard(look) {
 
     hatPivot.visible = adminFlag('look.hatVisible', true);
     staffGroup.visible = adminFlag('look.staffVisible', true);
+    if (fistMaterial) {
+      fistMaterial.color.set(tint.Piel);
+      fistMaterial.emissive.copy(fistMaterial.color).multiplyScalar(0.06);
+      if (styleProps) {
+        fistMaterial.roughness = styleProps.roughness;
+        fistMaterial.metalness = styleProps.metalness;
+      } else {
+        fistMaterial.roughness = 0.92;
+        fistMaterial.metalness = 0;
+      }
+    }
     shadow.visible = adminFlag('look.shadow', true) && !dead;
     hatGroup.scale.setScalar(HAT_SCALE * hatFit(look.hat) * adminValue('size.hat', 1));
-    staffGroup.scale.setScalar(STAFF_SCALE * adminValue('size.staff', 1));
+    staffGroup.scale.setScalar(STAFF_SCALE * adminValue('size.staff', 1) * GRIP_PARENT);
   }
 
   function setBoneAxes(enabled) {
@@ -1676,6 +1706,7 @@ export function createWizard(look) {
             material.color.set(look[field]);
           }
           if (material.name === 'Piel') {
+            skinMaterial = material;
             // La banda oscura del cuello venía del sombreado pintado en el atlas
             // (y el mapa de normales añadía grano). Se aplana la textura y se
             // quita el normal map: la piel queda limpia y el color elegido se
@@ -1707,7 +1738,29 @@ export function createWizard(look) {
       rig.add(model);
       loadedOnce = true;
       if (headBone) headBone.add(hatPivot);
-      if (handBone) handBone.add(staffGroup);
+      if (handBone) {
+        handBone.add(staffGroup);
+        // La mano abierta se oculta encogiéndola contra la muñeca. El bastón
+        // compensa la escala para conservar su tamaño y su distancia al puño.
+        handBone.scale.setScalar(HAND_HIDE_SCALE);
+        staffGroup.scale.setScalar(STAFF_SCALE * GRIP_PARENT);
+      }
+      // El puño se cuelga del bastón, no de la mano: así el asta queda dentro
+      // de la palma y los dedos la envuelven en todo el rango de la muñeca.
+      if (skinMaterial) {
+        fistGroup = createGripFist({ color: skinMaterial.color.getHex() });
+        fistMaterial = fistGroup.userData.material;
+        fistMaterial.emissive.copy(fistMaterial.color).multiplyScalar(0.06);
+        fistMaterial.emissiveIntensity = 1;
+        // El puño se centra a la altura de la muñeca, sobre el manguito del
+        // asta, no al pie del bastón.
+        fistGroup.position.y = -0.05;
+        // El grupo del bastón viene escalado por el modelo; el puño se modela
+        // en unidades de mundo para conservar la proporción con la mano.
+        fistGroup.scale.setScalar(1 / (STAFF_SCALE * MODEL_SCALE));
+        staffGroup.add(fistGroup);
+        materials.push(fistMaterial);
+      }
       applyAdminAppearance();
       applyAdminBody();
       applyClipSpeeds();
@@ -1729,19 +1782,8 @@ export function createWizard(look) {
 
       model.updateMatrixWorld(true);
       if (handBone) {
-        // La pose de reposo define la vertical del bastón; a partir de ahí la
-        // empuñadura queda rígida y el bastón acompaña al brazo.
-        const rigQuat = rig.getWorldQuaternion(tempQuat).clone();
-        const handQuat = handBone.getWorldQuaternion(tempQuatB).clone();
-        const handRelative = rigQuat.invert().multiply(handQuat);
-        const restTilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.025, 0, -0.035));
-        // Se quita el giro de muñeca para que el asta siga vertical aunque la
-        // mano ruede sobre sí misma.
-        staffGrip
-          .copy(handRelative.invert().multiply(restTilt))
-          .premultiply(gripTemp.copy(gripRoll).invert());
-        staffGroup.position.copy(staffGripOffset);
         staffReady = true;
+        placeStaff();
       }
     })
     .catch((error) => {
@@ -1836,7 +1878,6 @@ export function createWizard(look) {
     rig,
     look,
     shadow,
-    grip: { staffGrip, gripRoll, staffGripOffset },
     get loaded() {
       return !!model;
     },
@@ -1962,25 +2003,15 @@ export function createWizard(look) {
         mixer.update(dt);
         applySecondary(time, moving, running);
         updateGaze(dt, moving);
-        // El clip de idle deja la mano abierta: la muñeca rueda y los dedos se
-        // cierran sobre el asta para que el bastón quede agarrado de verdad.
-        if (bones.Hand_L) bones.Hand_L.quaternion.multiply(gripRoll);
-        if (bones.Fingers_L) bones.Fingers_L.rotation.set(0, GRIP_CURL, GRIP_FOLD);
       }
 
       const access = adminFlag('anim.secondary', true) ? adminValue('anim.accessory', 1) : 0;
       if (staffReady) {
-        // La empuñadura es rígida; solo hay un dejarse mecer de la muñeca y un
-        // flotar mínimo, que da vida al bastón sin despegarlo de la mano.
+        // El bastón se mece lo justo; el puño va con él, así que el agarre no
+        // se rompe nunca.
         const sway = (Math.sin(time * 1.15) * 0.012 + Math.sin(time * 0.47 + 1.3) * 0.006) * access;
-        tempEuler.set(sway * 0.6, 0, sway);
-        tempQuat.setFromEuler(tempEuler);
-        staffGroup.quaternion.copy(staffGrip).multiply(tempQuat);
-        staffGroup.position.set(
-          staffGripOffset.x,
-          staffGripOffset.y + Math.sin(time * 1.55 + 0.4) * 0.009 * access,
-          staffGripOffset.z
-        );
+        const bob = Math.sin(time * 1.55 + 0.4) * 0.009 * access;
+        placeStaff(sway, bob);
       }
 
       if (hatPivot.parent && !dead) {
