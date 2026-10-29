@@ -28,6 +28,15 @@ const hatFit = (hat) => HAT_FIT[hat] ?? 0.86;
 const STAFF_SCALE = 0.62;
 const STAFF_GRIP = 1.32;
 
+// Agarre: la mano del mago nace abierta con los dedos paralelos al asta, así
+// que no puede abrazarla. Se rueda la muñeca lo justo para que la pinza quede
+// horizontal y se cierran los dedos sobre el bastón; el asta se compensa para
+// seguir vertical.
+const GRIP_ROLL = 0.52;
+const GRIP_CURL = -1.5;
+const GRIP_FOLD = 1.15;
+const GRIP_AXIS = new THREE.Vector3(1, 0, 0);
+
 const GEO = {
   shaft: new THREE.CylinderGeometry(0.06, 0.075, 2.85, 6),
   smallCyl: new THREE.CylinderGeometry(0.05, 0.05, 0.5, 5),
@@ -1214,33 +1223,33 @@ export function createWizard(look) {
   // abrazaderas de latón: la misma gramática en los seis bastones.
   // El asta es fina de verdad: si el puño es más grueso que la mano, el mago
   // no puede cerrar los dedos y parece que sostiene un poste, no un bastón.
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.056, 2.62, 7, 1), staffMat);
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.04, 2.62, 7, 1), staffMat);
   shaft.position.y = 1.35;
   staffArt.add(shaft);
 
   const buttCap = new THREE.Mesh(new THREE.LatheGeometry([
     new THREE.Vector2(0.0, 0.0),
-    new THREE.Vector2(0.048, 0.0),
-    new THREE.Vector2(0.068, 0.04),
-    new THREE.Vector2(0.072, 0.1),
-    new THREE.Vector2(0.058, 0.18),
+    new THREE.Vector2(0.038, 0.0),
+    new THREE.Vector2(0.052, 0.04),
+    new THREE.Vector2(0.055, 0.1),
+    new THREE.Vector2(0.046, 0.18),
     new THREE.Vector2(0.0, 0.21),
   ], 10), staffMetalMat);
   buttCap.position.y = 0.035;
   staffArt.add(buttCap);
 
   for (const y of [0.95, 1.57]) {
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.062, 0.032, 10), staffMetalMat);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.046, 0.032, 10), staffMetalMat);
     band.position.y = y;
     staffArt.add(band);
   }
   // Puño: manguito de cuero con surcos y una costura en hélice. Se agarra con
   // la mano entera y se lee como cuero, no como una rosca metálica.
-  const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.05, 0.56, 9), staffWrapMat);
+  const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.0345, 0.037, 0.56, 9), staffWrapMat);
   sleeve.position.y = 1.29;
   staffArt.add(sleeve);
   for (let i = 0; i < 5; i++) {
-    const groove = new THREE.Mesh(new THREE.TorusGeometry(0.048, 0.006, 4, 10), staffDeep);
+    const groove = new THREE.Mesh(new THREE.TorusGeometry(0.036, 0.0055, 4, 10), staffDeep);
     groove.rotation.x = Math.PI / 2;
     groove.position.y = 1.05 + i * 0.12;
     staffArt.add(groove);
@@ -1249,10 +1258,10 @@ export function createWizard(look) {
   for (let k = 0; k <= 24; k++) {
     const t = k / 24;
     const angle = t * Math.PI * 2 * 3.4;
-    seam.push(new THREE.Vector3(Math.cos(angle) * 0.049, 1.02 + t * 0.54, Math.sin(angle) * 0.049));
+    seam.push(new THREE.Vector3(Math.cos(angle) * 0.037, 1.02 + t * 0.54, Math.sin(angle) * 0.037));
   }
   staffArt.add(new THREE.Mesh(tubeFromPoints(seam, 0.008, 3), staffDeep));
-  for (const [x, y, z, r] of [[0.035, 0.7, 0.008, 0.038], [-0.032, 2.2, -0.016, 0.03]]) {
+  for (const [x, y, z, r] of [[0.028, 0.7, 0.008, 0.028], [-0.026, 2.2, -0.016, 0.022]]) {
     const knot = new THREE.Mesh(new THREE.SphereGeometry(r, 6, 4), staffMat);
     knot.position.set(x, y, z);
     staffArt.add(knot);
@@ -1504,8 +1513,10 @@ export function createWizard(look) {
   // Orientación de la empuñadura fijada una sola vez respecto a la mano: así
   // el bastón se mueve con la muñeca (agarre real) en vez de quedarse clavado
   // en vertical mientras la mano se separa de él.
+  const gripRoll = new THREE.Quaternion().setFromAxisAngle(GRIP_AXIS, GRIP_ROLL);
   const staffGrip = new THREE.Quaternion();
-  const staffGripOffset = new THREE.Vector3(0.055, -0.01, -0.015);
+  const staffGripOffset = new THREE.Vector3(0.0305, 0.0325, 0.0051);
+  const gripTemp = new THREE.Quaternion();
   let staffReady = false;
 
   // ------------------------------------------------------- ajustes de admin
@@ -1724,7 +1735,11 @@ export function createWizard(look) {
         const handQuat = handBone.getWorldQuaternion(tempQuatB).clone();
         const handRelative = rigQuat.invert().multiply(handQuat);
         const restTilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.025, 0, -0.035));
-        staffGrip.copy(handRelative.invert().multiply(restTilt));
+        // Se quita el giro de muñeca para que el asta siga vertical aunque la
+        // mano ruede sobre sí misma.
+        staffGrip
+          .copy(handRelative.invert().multiply(restTilt))
+          .premultiply(gripTemp.copy(gripRoll).invert());
         staffGroup.position.copy(staffGripOffset);
         staffReady = true;
       }
@@ -1821,6 +1836,7 @@ export function createWizard(look) {
     rig,
     look,
     shadow,
+    grip: { staffGrip, gripRoll, staffGripOffset },
     get loaded() {
       return !!model;
     },
@@ -1946,9 +1962,10 @@ export function createWizard(look) {
         mixer.update(dt);
         applySecondary(time, moving, running);
         updateGaze(dt, moving);
-        // El clip de idle deja la mano abierta: los dedos se cierran sobre el
-        // asta para que el bastón se agarre en vez de apoyarse en la palma.
-        if (bones.Fingers_L) bones.Fingers_L.rotation.x = 1.05;
+        // El clip de idle deja la mano abierta: la muñeca rueda y los dedos se
+        // cierran sobre el asta para que el bastón quede agarrado de verdad.
+        if (bones.Hand_L) bones.Hand_L.quaternion.multiply(gripRoll);
+        if (bones.Fingers_L) bones.Fingers_L.rotation.set(0, GRIP_CURL, GRIP_FOLD);
       }
 
       const access = adminFlag('anim.secondary', true) ? adminValue('anim.accessory', 1) : 0;
