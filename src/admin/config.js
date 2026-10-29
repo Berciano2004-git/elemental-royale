@@ -183,7 +183,7 @@ export const GROUPS = [
           num('camera.fov', 'Campo de visión (FOV)', 52, 35, 90, 0.5, { unit: '°' }),
           num('camera.sensitivity', 'Sensibilidad de giro', 1, 0, 2, 0.01, {
             unit: '×',
-            hint: 'La cámara no orbita: este valor controla cuánto se desplaza el encuadre hacia el punto de mira.',
+            hint: 'Velocidad de la órbita con Q/E y con el arrastre del botón central; no afecta al apuntado.',
           }),
           num('camera.follow', 'Velocidad de seguimiento', 7, 1, 25, 0.5, { unit: '/s' }),
           num('camera.smooth', 'Suavidad del movimiento', 10, 1, 30, 0.5, { unit: '/s' }),

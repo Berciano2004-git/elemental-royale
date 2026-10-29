@@ -74,6 +74,14 @@ export class GameView {
     this.fpYaw = 0;
     this.fpPitch = -0.05;
     this.fpBob = 0;
+    // Cámara elevada: órbita alrededor del mago. `camYaw` es el rumbo desde
+    // el que se coloca la cámara (0 = al sur, mirando al norte) y `camPitch`
+    // su elevación. No se desplaza con el cursor: el encuadre queda fijo en
+    // el mago y el punto de mira solo decide hacia dónde se lanza.
+    this.camYaw = 0;
+    this.camPitch = (54.8 * Math.PI) / 180;
+    this.camPitchSource = 54.8;
+    this.camTurn = 0;
     this.spectateId = 0;
     this.matchActive = false;
     this.time = 0;
@@ -117,6 +125,13 @@ export class GameView {
     if (this.camera.fov !== fov) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
+    }
+    // La inclinación del panel solo se aplica cuando cambia de verdad: R/F
+    // pueden ajustar la vista en plena partida sin que el panel la reimponga.
+    const pitchDeg = this.adminValue('camera.pitch', 54.8);
+    if (pitchDeg !== this.camPitchSource) {
+      this.camPitchSource = pitchDeg;
+      this.camPitch = (pitchDeg * Math.PI) / 180;
     }
     const min = this.adminValue('camera.minDistance', 18);
     const max = Math.max(min + 1, this.adminValue('camera.maxDistance', 60));
@@ -192,6 +207,10 @@ export class GameView {
     this.swimCine = null;
     this.swimCineCooldown = 0;
     this.debugProps = [];
+    this.camYaw = 0;
+    this.camPitchSource = this.adminValue('camera.pitch', 54.8);
+    this.camPitch = (this.camPitchSource * Math.PI) / 180;
+    this.camTurn = 0;
 
     for (const info of data.players || []) {
       const isSelf = info.id === this.selfId;
@@ -367,33 +386,102 @@ export class GameView {
   }
 
   computeAim(clientX, clientY) {
+    // Primera persona: el punto de mira sale del rumbo de la cabeza, no de un
+    // rayo al suelo. Antes, al mirar por encima del horizonte el rayo no
+    // cortaba el terreno, el punto se quedaba en el sitio y el mago dejaba de
+    // girar (y de moverse en la dirección de la vista).
+    if (this.firstPerson) {
+      this.aimFromYaw(this.fpYaw);
+      return this.aim;
+    }
     const rect = this.canvas.getBoundingClientRect();
-    // En primera persona se apunta con el centro de la vista (la cruz), como
-    // en un FPS: el cursor no decide el destino del hechizo.
-    const ndcX = this.firstPerson ? 0 : ((clientX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = this.firstPerson ? 0 : -(((clientY - rect.top) / rect.height) * 2 - 1);
+    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1);
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
     const plane = new THREE.Plane();
     const point = new THREE.Vector3();
     let guess = this.worldData ? this.worldData.heightAt(this.selfPred.x, this.selfPred.z) : 0;
+    let hit = false;
     for (let i = 0; i < 4; i++) {
       plane.setFromNormalAndCoplanarPoint(UP, new THREE.Vector3(0, guess, 0));
       if (!raycaster.ray.intersectPlane(plane, point)) break;
+      hit = true;
       if (this.worldData) guess = this.worldData.heightAt(point.x, point.z);
     }
-    if (Number.isFinite(point.x) && Number.isFinite(point.z)) {
-      this.aim.set(
-        Math.max(-HALF_WORLD + 20, Math.min(HALF_WORLD - 20, point.x)),
-        0,
-        Math.max(-HALF_WORLD + 20, Math.min(HALF_WORLD - 20, point.z))
-      );
+    if (!hit || !Number.isFinite(point.x) || !Number.isFinite(point.z)) {
+      // Cursor sobre el cielo o fuera del terreno: manda el rumbo de la cámara.
+      this.aimFromYaw(this.viewYaw());
+      return this.aim;
     }
+    this.aim.set(
+      Math.max(-HALF_WORLD + 20, Math.min(HALF_WORLD - 20, point.x)),
+      0,
+      Math.max(-HALF_WORLD + 20, Math.min(HALF_WORLD - 20, point.z))
+    );
     return this.aim;
+  }
+
+  aimFromYaw(yaw, distance = 60) {
+    this.aim.set(
+      Math.max(-HALF_WORLD + 20, Math.min(HALF_WORLD - 20, this.selfPred.x + Math.sin(yaw) * distance)),
+      0,
+      Math.max(-HALF_WORLD + 20, Math.min(HALF_WORLD - 20, this.selfPred.z + Math.cos(yaw) * distance))
+    );
+    return this.aim;
+  }
+
+  // Rumbo horizontal de la vista. El mago encara su punto de mira y el vector
+  // de movimiento se gira con este ángulo, así que cámara, WASD y hechizos
+  // comparten siempre el mismo «adelante».
+  viewYaw() {
+    return this.firstPerson ? this.fpYaw : this.camYaw + Math.PI;
+  }
+
+  // Vector de movimiento en coordenadas del mundo a partir de las teclas.
+  // Arriba es «hacia donde miro»; el servidor recibe este vector ya girado.
+  worldInput(input = this.input) {
+    const forward = (input.up ? 1 : 0) - (input.down ? 1 : 0);
+    const side = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    if (!forward && !side) return { mx: 0, mz: 0 };
+    const yaw = this.viewYaw();
+    return normalizeInput(
+      Math.sin(yaw) * forward - Math.cos(yaw) * side,
+      Math.cos(yaw) * forward + Math.sin(yaw) * side
+    );
+  }
+
+  // Órbita de la cámara elevada (arrastre con el botón central, Q/E y R/F).
+  orbitBy(deltaYaw, deltaPitch = 0) {
+    if (this.firstPerson || !this.matchActive || this.swimCine) return false;
+    this.camYaw += deltaYaw;
+    this.camPitch = THREE.MathUtils.clamp(
+      this.camPitch + deltaPitch,
+      (20 * Math.PI) / 180,
+      (80 * Math.PI) / 180
+    );
+    if (this.camYaw > Math.PI) this.camYaw -= Math.PI * 2;
+    else if (this.camYaw < -Math.PI) this.camYaw += Math.PI * 2;
+    this.camTurn = 0.45;
+    return true;
+  }
+
+  orbitStep(dt, left, right, up, down) {
+    if (this.firstPerson || !this.matchActive) return;
+    const speed = 1.9 * this.adminValue('camera.sensitivity', 1);
+    let yaw = 0;
+    let pitch = 0;
+    if (left) yaw += 1;
+    if (right) yaw -= 1;
+    if (up) pitch += 1;
+    if (down) pitch -= 1;
+    if (!yaw && !pitch) return;
+    this.orbitBy(yaw * speed * dt, pitch * speed * 0.55 * dt);
   }
 
   update(dt, mouse) {
     this.time += dt;
+    this.camTurn = Math.max(0, this.camTurn - dt);
     if (!this.matchActive || !this.world) {
       this.render();
       return;
@@ -408,10 +496,10 @@ export class GameView {
     // Predicción local del movimiento. Usa exactamente el mismo modelo de
     // aceleración que el servidor para que las instantáneas no tire del mago.
     if (selfState && selfState.alive && selfSnap) {
-      const input = normalizeInput(
-        (this.input.right ? 1 : 0) - (this.input.left ? 1 : 0),
-        (this.input.down ? 1 : 0) - (this.input.up ? 1 : 0)
-      );
+      // WASD relativos a la cámara: W va hacia donde se mira, también en
+      // primera persona. Antes el input viajaba en ejes del mundo y al girar
+      // la vista el mago seguía caminando hacia el norte.
+      const input = this.worldInput();
       const aimYaw = Math.atan2(this.aim.x - this.selfPred.x, this.aim.z - this.selfPred.z);
       let mx = input.mx;
       let mz = input.mz;
@@ -716,10 +804,12 @@ export class GameView {
     this.firstPerson = next;
     if (next) this.skipCine();
     if (next) {
-      const dx = this.aim.x - this.selfPred.x;
-      const dz = this.aim.z - this.selfPred.z;
+      // Se entra mirando hacia donde ya miraba la cámara elevada, sin dar un
+      // salto de rumbo al cambiar de vista.
+      const dx = this.selfPred.x - this.camera.position.x;
+      const dz = this.selfPred.z - this.camera.position.z;
       const state = this.states.get(this.selfId);
-      this.fpYaw = Math.hypot(dx, dz) > 0.5 ? Math.atan2(dx, dz) : state?.yaw || 0;
+      this.fpYaw = Math.hypot(dx, dz) > 1 ? Math.atan2(dx, dz) : state?.yaw || 0;
       this.fpPitch = -0.06;
       this.fpBob = 0;
     } else {
@@ -769,15 +859,11 @@ export class GameView {
         Math.cos(this.fpYaw) * cos
       );
       const focus = eye.clone().addScaledVector(direction, 24);
-      if (!this.cameraLook) this.cameraLook = focus.clone();
-      if (immediate) {
-        this.camera.position.copy(eye);
-        this.cameraLook.copy(focus);
-      } else {
-        this.camera.position.lerp(eye, 1 - Math.exp(-dt * 18));
-        this.cameraLook.lerp(focus, 1 - Math.exp(-dt * 22));
-      }
-      this.camera.lookAt(this.cameraLook);
+      // La cámara va pegada a los ojos: cualquier suavizado aquí se siente
+      // como retraso (el mundo se queda atrás al caminar y al girar).
+      this.camera.position.copy(eye);
+      this.cameraLook = focus.clone();
+      this.camera.lookAt(focus);
       this.camera.updateMatrixWorld();
       return;
     }
@@ -799,36 +885,41 @@ export class GameView {
     const swimMix = this.swimming ? 1 : 0;
     this.swimCam += (swimMix - this.swimCam) * (immediate ? 1 : Math.min(1, dt * 2.2));
     const radius = this.zoom * (1 - this.swimCam * 0.58) * 1.5;
-    const basePitchDeg = this.adminValue('camera.pitch', 54.8);
-    const pitchDeg = basePitchDeg + (23 - basePitchDeg) * this.swimCam;
-    const pitch = (pitchDeg * Math.PI) / 180;
+    const swimPitch = (23 * Math.PI) / 180;
+    const pitch = this.camPitch + (swimPitch - this.camPitch) * this.swimCam;
     const cos = Math.cos(pitch);
     const sin = Math.sin(pitch);
+    // La órbita decide de qué lado se ve al mago; el pivote no se mueve.
+    const dirX = Math.sin(this.camYaw);
+    const dirZ = Math.cos(this.camYaw);
     let distance = radius;
 
     // La cámara retrocede si su posición cae dentro de un árbol, una roca o el
     // agua; se queda en un mínimo para no pegarse al mago.
     if (this.adminFlag('camera.collision', true)) {
       for (let i = 0; i < 7; i++) {
-        const cz = targetZ + distance * cos;
-        if (this.worldData.canStand(targetX, cz, 0.45) || this.worldData.isWater(targetX, cz)) break;
+        const cx = targetX + dirX * distance * cos;
+        const cz = targetZ + dirZ * distance * cos;
+        if (this.worldData.canStand(cx, cz, 0.45) || this.worldData.isWater(cx, cz)) break;
         distance *= 0.86;
       }
       distance = Math.max(radius * 0.4, distance);
     }
 
-    const camZ = targetZ + distance * cos;
+    const horiz = distance * cos;
+    const camX = targetX + dirX * horiz;
+    const camZ = targetZ + dirZ * horiz;
     const groundY = this.worldData.heightAt(targetX, targetZ);
-    const camGround = this.worldData.heightAt(targetX, camZ);
+    const camGround = this.worldData.heightAt(camX, camZ);
     const extra = this.adminValue('camera.height', 0);
     const desired = new THREE.Vector3(
-      targetX,
+      camX,
       camGround + distance * sin + extra,
       camZ
     );
     if (this.adminFlag('camera.collision', true)) {
-      // Sobre el agua el suelo del cámara es la superficie, no el fondo.
-      const floor = this.worldData.isWater(targetX, camZ)
+      // Sobre el agua el suelo de la cámara es la superficie, no el fondo.
+      const floor = this.worldData.isWater(camX, camZ)
         ? this.worldData.waterSurface + 0.9
         : camGround + 1.8;
       desired.y = Math.max(desired.y, floor);
@@ -837,25 +928,25 @@ export class GameView {
     const jump = selfState ? selfState.jumpY : 0;
     const focusWalk = groundY + 2.4 * this.characterScaleY() + jump;
     const focusSwim = this.worldData.waterSurface + 0.9 * this.characterScaleY();
+    // Encuadre fijo: se mira siempre al mago. El cursor apunta, pero ya no
+    // arrastra la cámara hacia un lado cuando se mueve por la pantalla.
     const focus = new THREE.Vector3(targetX, focusWalk + (focusSwim - focusWalk) * this.swimCam, targetZ);
-    const aimBias = new THREE.Vector3(this.aim.x - targetX, 0, this.aim.z - targetZ);
-    if (aimBias.lengthSq() > 4) {
-      aimBias.normalize().multiplyScalar(6 * this.adminValue('camera.sensitivity', 1));
-      focus.x += aimBias.x;
-      focus.z += aimBias.z;
-    }
     if (immediate) {
       this.camera.position.copy(desired);
       this.camera.lookAt(focus);
       this.cameraLook = focus.clone();
     } else {
-      const follow = 1 - Math.exp(-dt * this.adminValue('camera.follow', 7));
-      const smooth = 1 - Math.exp(-dt * this.adminValue('camera.smooth', 10));
+      // Al orbitar el encuadre responde más rápido para que el giro no se
+      // sienta pastoso.
+      const boost = this.camTurn > 0 ? 2.2 : 1;
+      const follow = 1 - Math.exp(-dt * this.adminValue('camera.follow', 7) * boost);
+      const smooth = 1 - Math.exp(-dt * this.adminValue('camera.smooth', 10) * boost);
       this.camera.position.lerp(desired, follow);
       if (!this.cameraLook) this.cameraLook = focus.clone();
       this.cameraLook.lerp(focus, smooth);
       this.camera.lookAt(this.cameraLook);
     }
+    this.camera.updateMatrixWorld();
   }
 
   jump() {
@@ -867,6 +958,15 @@ export class GameView {
     this.jumpV = (4 * h) / t;
     this.jumpY = 0.001;
     return true;
+  }
+
+  resetCamera() {
+    this.camYaw = 0;
+    this.camPitchSource = this.adminValue('camera.pitch', 54.8);
+    this.camPitch = (this.camPitchSource * Math.PI) / 180;
+    this.camTurn = 0;
+    this.zoom = this.adminValue('camera.distance', 30);
+    this.updateCamera(1, true);
   }
 
   setZoom(delta) {
@@ -1016,6 +1116,8 @@ export class GameView {
     this.wasSwimming = false;
     this.swimCam = 0;
     this.swimCineCooldown = 0;
+    this.camYaw = 0;
+    this.camTurn = 0;
     if (this.firstPerson) this.toggleFirstPerson(false);
     this.debugSignature = null;
     this.clearDebugGroup();

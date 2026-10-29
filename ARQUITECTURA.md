@@ -427,7 +427,9 @@ espectador, mira, pasos, región del minimapa y FPS.
 
 El jugador local no espera al servidor. `GameView.update()`:
 
-- Calcula el vector de entrada y el yaw hacia el punto de apuntado.
+- Gira el vector de WASD con el rumbo de la cámara (arriba es «hacia donde miro», también en
+  primera persona) y calcula el yaw hacia el punto de apuntado. Al servidor se le envía ya en
+  coordenadas del mundo, porque él no conoce la cámara.
 - Aplica velocidad, aceleración y colisión **con las mismas fórmulas y constantes** que el
   servidor.
 - Mueve `selfPred` y el modelo; el resto de magos se interpola hacia `targetX/targetZ` con una
@@ -444,20 +446,28 @@ manda en la siguiente instantánea.
 
 ### 7.4 Apuntado y cámara
 
-El ratón se convierte en un rayo de cámara; se corta contra un plano horizontal y se refina la
-altura del terreno unas cuantas veces (`computeAim`). El resultado es un punto XZ dentro del
-mundo que se envía como `ax/az`. En primera persona el rayo sale del centro de la pantalla.
+En tercera persona el ratón se convierte en un rayo de cámara; se corta contra un plano horizontal
+y se refina la altura del terreno unas cuantas veces (`computeAim`). El resultado es un punto XZ
+dentro del mundo que se envía como `ax/az`. Si el cursor cae sobre el cielo, el rayo no corta el
+suelo y se usa el rumbo de la cámara. En primera persona el punto de mira se deriva directamente
+del rumbo de la cabeza (`aimFromYaw`), de modo que mirar arriba o abajo nunca deja el apuntado
+congelado y el movimiento sigue respondiendo.
 
 La cámara:
-- Tercera persona orbital: distancia (`zoom`), inclinación, FOV y suavizado configurables;
-  retrocede si su posición cae dentro de un prop y se mantiene por encima del suelo o del agua.
-- Primera persona (**V**): bloquea el puntero, el ojo se coloca a 2,9 × escala sobre los pies y
-  el FOV se abre 12°. Al soltar el puntero se pausa.
+- Tercera persona orbital: el pivote está clavado en el mago y nunca se desplaza con el cursor.
+  **Q/E** giran alrededor del mago, **R/F** cambian la elevación y el **botón central arrastrado**
+  hace ambas cosas con el ratón; la rueda regula la distancia, entre los límites del panel. La
+  distancia, la inclinación, el FOV y el suavizado son configurables. La cámara retrocede si su
+  posición cae dentro de un prop y se mantiene por encima del suelo o del agua.
+- Primera persona (**V**): bloquea el puntero, el ojo se coloca a 2,9 × escala sobre los pies (a
+  la altura de los ojos del modelo) y el FOV se abre 12°. Al soltar el puntero se pausa.
 - Agua: baja a ~23°, se acerca, enfoca la línea de flotación y eleva el ojo en primera persona
-  para no mirar desde el fondo.
+  para no mirar desde el fondo. La órbita elegida se conserva al volver a tierra.
 - Entrada al agua: cinemática de 3,8 s con cámara baja que orbita, salpicadura, anillos y barras
   con el rótulo **Nado**; **Espacio** la salta y una pausa la cancela. Después queda la cámara de
   agua y un anillo dorado en la superficie para no perder al mago.
+- `resetCamera()` (botón del panel) devuelve la órbita al sur, la inclinación configurada y la
+  distancia de seguimiento.
 
 ### 7.5 HUD, audio y efectos
 

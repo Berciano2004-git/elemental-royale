@@ -48,19 +48,27 @@ npm start          # http://localhost:8080
 
 | Entrada | Acción |
 | --- | --- |
-| **W A S D** / flechas | Mover al mago |
-| **Ratón** | Apuntar (la cámara sigue al mago) |
+| **W A S D** / flechas | Mover al mago respecto a la vista (arriba es hacia donde miras) |
+| **Ratón** | Apuntar en vista elevada; en primera persona, mirar alrededor |
+| **Q / E** | Girar la cámara alrededor del mago |
+| **R / F** | Subir o bajar la cámara |
+| **Botón central (arrastrar)** | Orbitar la cámara con el ratón |
 | **Clic izquierdo** | Hechizo principal del poder activo |
 | **Clic derecho** | Hechizo secundario del poder activo |
 | **1 / 2** | Cambiar de poder equipado |
 | **3** | Combinación elemental (con dos elementos distintos) |
 | **Espacio** | Saltar (también salta la cinemática de nado) |
 | **Shift** | Correr, consume aguante |
-| **V** | Primera persona / vista elevada |
+| **V** | Primera persona / vista elevada (el puntero se captura y se mira con el ratón) |
 | **Ñ** | Consola del Archimago (reconfigurable) |
 | **Rueda** | Acercar / alejar la cámara |
 | **Tab** | Menú rápido / grimorio de poderes |
 | **Esc** | Pausa y ajustes |
+
+La cámara elevada mantiene el pivote fijo en el mago: el cursor solo decide hacia dónde
+apuntas, no arrastra el encuadre. Con **Q/E** (o arrastrando el **botón central**) giras
+alrededor para ver la isla, **R/F** cambian la altura y la rueda acerca o aleja. En primera
+persona el mago no se dibuja y **W** avanza siempre hacia donde miras.
 
 La recogida es automática: basta con caminar sobre un cristal. Si ya llevas dos poderes, el
 nuevo sustituye al activo y el anterior cae al suelo para que puedas recuperarlo.

@@ -47,6 +47,7 @@ let fpsAccum = 0;
 let serverAllowsAdmin = false;
 let tuneTimer = 0;
 let mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+let orbiting = false;
 const keys = new Set();
 
 // La cinemática la dirige la escena (cámara); la interfaz solo abre y cierra
@@ -71,6 +72,7 @@ admin = createAdminPanel({
   onOpenChange: (open) => {
     if (open) {
       keys.clear();
+      orbiting = false;
       // El panel necesita el cursor: se suelta el puntero de la vista en
       // primera persona y se recupera al volver a la partida con un clic.
       document.exitPointerLock?.();
@@ -103,10 +105,7 @@ admin = createAdminPanel({
   stepAnimation: (seconds) => gameView.states.get(selfId)?.model.stepClip(seconds),
   playClip: (name) => gameView.states.get(selfId)?.model.playClip(name),
   resumeAnimation: () => gameView.states.get(selfId)?.model.applyAdmin(admin.values),
-  resetCamera: () => {
-    gameView.zoom = admin.defaults['camera.distance'];
-    gameView.updateCamera(1, true);
-  },
+  resetCamera: () => gameView.resetCamera(),
   teleport: (x, z) => requestTeleport({ x, z }),
   resetPosition: () => requestTeleport({ reset: true }),
   syncServer: () => {
@@ -334,6 +333,7 @@ function setPaused(value) {
   ui.showPause(value);
   if (value) {
     keys.clear();
+    orbiting = false;
     swimCineEl?.classList.remove('active');
     gameView.skipCine();
     document.exitPointerLock?.();
@@ -559,11 +559,26 @@ window.addEventListener('keyup', (event) => {
 
 window.addEventListener('blur', () => {
   keys.clear();
+  orbiting = false;
+});
+
+window.addEventListener('mouseup', (event) => {
+  if (event.button === 1) orbiting = false;
 });
 
 window.addEventListener('mousemove', (event) => {
   mouse.x = event.clientX;
   mouse.y = event.clientY;
+  if (orbiting) {
+    const sensitivity = gameView.adminValue('camera.sensitivity', 1);
+    gameView.orbitBy(
+      (event.movementX || 0) * 0.0045 * sensitivity,
+      -(event.movementY || 0) * 0.0035 * sensitivity
+    );
+    return;
+  }
+  // Si el navegador no concede el bloqueo del puntero (iframe, permisos),
+  // mover el ratón sigue girando la vista; el primer clic vuelve a pedirlo.
   if (!gameView.firstPerson || paused || admin.isOpen() || ui.currentScreen() !== 'none') return;
   gameView.look(event.movementX || 0, event.movementY || 0);
 });
@@ -584,14 +599,24 @@ function toggleView() {
     hud.toast('Primera persona · V cambia la vista', '#8fe8ff');
   } else {
     document.exitPointerLock?.();
-    hud.toast('Vista elevada', '#8fe8ff');
+    hud.toast('Vista elevada · Q/E gira la cámara', '#8fe8ff');
   }
 }
 
 sceneCanvas.addEventListener('contextmenu', (event) => event.preventDefault());
+sceneCanvas.addEventListener('auxclick', (event) => {
+  if (event.button === 1) event.preventDefault();
+});
 sceneCanvas.addEventListener('mousedown', (event) => {
   if (!inMatch || loadingMatch || paused || matchEnded || admin.isOpen()) return;
   if (ui.currentScreen() !== 'none') return;
+  // Botón central: orbitar la vista elevada sin lanzar ningún hechizo.
+  if (event.button === 1) {
+    if (gameView.firstPerson) return;
+    event.preventDefault();
+    orbiting = true;
+    return;
+  }
   if (!selfSnapshot || !selfSnapshot.al) return;
   if (event.button !== 0 && event.button !== 2) return;
   event.preventDefault();
@@ -678,9 +703,12 @@ function sendInput() {
     return;
   }
   const input = movementInput();
+  // El servidor mueve con el vector en coordenadas del mundo: se gira aquí
+  // con el rumbo de la cámara para que W vaya siempre hacia delante.
+  const move = gameView.worldInput(input);
   net.send('input', {
-    mx: (input.right ? 1 : 0) - (input.left ? 1 : 0),
-    mz: (input.down ? 1 : 0) - (input.up ? 1 : 0),
+    mx: move.mx,
+    mz: move.mz,
     ax: gameView.aim.x,
     az: gameView.aim.z,
     sprint: input.sprint,
@@ -840,6 +868,15 @@ function loop(now) {
   if (gameView.matchActive) {
     const blocked = paused || admin.isOpen() || admin.isFrozen();
     gameView.input = blocked ? { up: false, down: false, left: false, right: false, sprint: false } : movementInput();
+    if (!blocked) {
+      gameView.orbitStep(
+        dt,
+        keys.has('KeyQ'),
+        keys.has('KeyE'),
+        keys.has('KeyR'),
+        keys.has('KeyF')
+      );
+    }
     gameView.update(dt, mouse);
     updateNameplates();
     updateSpectate();
