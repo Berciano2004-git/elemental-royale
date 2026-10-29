@@ -3,12 +3,28 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 
 const MODEL_URL = `${import.meta.env.BASE_URL}models/mago.glb`;
 const MODEL_SCALE = 1.62;
 const HAT_SCALE = 0.35;
+// La cabeza mide 0,36 de radio en las unidades de los gorros. Cada pieza baja
+// su escala para apoyar el borde en el cráneo en vez de flotar: las capuchas
+// necesitan algo más de holgura por el pelo, los sombreros de copa algo menos.
+const HAT_FIT = {
+  pointy: 0.8,
+  wide: 0.84,
+  horns: 0.88,
+  leaves: 0.92,
+  dark: 0.92,
+  crystal: 0.88,
+  crown: 0.87,
+  viking: 0.88,
+  laurel: 0.9,
+  top: 0.85,
+};
+const hatFit = (hat) => HAT_FIT[hat] ?? 0.86;
 const STAFF_SCALE = 0.62;
 const STAFF_GRIP = 1.32;
 
@@ -725,10 +741,20 @@ export function createWizard(look) {
     flatShading: true,
     side: THREE.DoubleSide,
   });
+  // Cuerno del casco vikingo: hueso claro, sin tinte, para que se lea contra el
+  // latón y la tela del resto de piezas.
+  const hatHornMat = new THREE.MeshStandardMaterial({
+    color: '#dccbaa',
+    roughness: 0.58,
+    metalness: 0.03,
+    vertexColors: true,
+    flatShading: true,
+    side: THREE.DoubleSide,
+  });
   const staffMat = lambert(look.staffColor);
   const magicMat = lambert(look.magic, { emissive: new THREE.Color(look.magic), emissiveIntensity: 0.4 });
   const darkMat = lambert('#1a1626');
-  materials.push(hatMat, hatLeatherMat, hatStrapMat, hatLiningMat, hatMetalMat, hatStitchMat, hatFurMat, staffMat, magicMat, darkMat);
+  materials.push(hatMat, hatLeatherMat, hatStrapMat, hatLiningMat, hatMetalMat, hatStitchMat, hatFurMat, hatHornMat, staffMat, magicMat, darkMat);
 
   const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.32, depthWrite: false });
   const shadow = new THREE.Mesh(GEO.shadow, shadowMat);
@@ -739,7 +765,7 @@ export function createWizard(look) {
   // ------------------------------------------------------------------ gorro
   const hatGroup = new THREE.Group();
   hatGroup.name = 'Gorro';
-  hatGroup.scale.setScalar(HAT_SCALE);
+  hatGroup.scale.setScalar(HAT_SCALE * hatFit(look.hat));
   const hatPivot = new THREE.Group();
   hatPivot.name = 'GorroPivote';
   // La frente queda a 0,58 del mentón y la coronilla a 0,86: el borde de los
@@ -757,6 +783,7 @@ export function createWizard(look) {
   const hatMetal = [];
   const hatStitches = [];
   const hatFur = [];
+  const hatHorn = [];
   const addHatPart = (list, geometry, options) => list.push(placed(geometry, options));
   // Cinta de cuero con sus dos ribetes cosidos.
   const addStrapBand = (radius, height, y, tube = 0.007) => {
@@ -997,6 +1024,123 @@ export function createWizard(look) {
       }
       break;
     }
+    case 'crown': {
+      // Corona de rey mago: aro de latón con puntas, terciopelo por dentro y
+      // gemas engastadas al frente. Se ciñe al cráneo en vez de flotar.
+      addHatPart(hatStrap, new THREE.CylinderGeometry(0.418, 0.424, 0.104, 34, 1, true), { y: 0.052 });
+      addHatPart(hatMetal, new THREE.CylinderGeometry(0.426, 0.432, 0.1, 34, 1, true), { y: 0.052 });
+      addHatPart(hatMetal, new THREE.TorusGeometry(0.432, 0.012, 4, 46), { y: 0.102, rx: Math.PI / 2 });
+      addHatPart(hatMetal, new THREE.TorusGeometry(0.436, 0.013, 4, 46), { y: 0.002, rx: Math.PI / 2 });
+      for (let i = 0; i < 8; i++) {
+        const phi = (i / 8) * Math.PI * 2;
+        addHatPart(hatMetal, new THREE.ConeGeometry(0.062, 0.13 + (i % 2) * 0.02, 4), {
+          x: Math.sin(phi) * 0.43,
+          y: 0.16 + (i % 2) * 0.01,
+          z: Math.cos(phi) * 0.43,
+          ry: phi,
+          sz: 0.38,
+        });
+      }
+      for (const [phi, size] of [[0, 0.03], [-0.5, 0.022], [0.5, 0.022], [-0.95, 0.016], [0.95, 0.016]]) {
+        const gem = new THREE.Mesh(new THREE.OctahedronGeometry(size, 0), magicMat);
+        gem.position.set(Math.sin(phi) * 0.44, 0.052, Math.cos(phi) * 0.44);
+        gem.scale.set(0.8, 1.2, 0.55);
+        gem.rotation.y = phi;
+        hatGroup.add(gem);
+      }
+      break;
+    }
+    case 'viking': {
+      // Casco vikingo: calota de latón, banda de cuero con remaches, guardanuca
+      // y nasal. Los cuernos salen del aro y curvan hacia arriba.
+      addHatPart(hatMetal, capShellGeometry({ radius: 0.423, height: 0.33, radial: 32, rings: 10 }), {});
+      addHatPart(hatStrap, new THREE.CylinderGeometry(0.427, 0.437, 0.082, 32, 1, true), { y: 0.026 });
+      addHatPart(hatStrap, new THREE.TorusGeometry(0.43, 0.009, 4, 44), { y: 0.066, rx: Math.PI / 2 });
+      addHatPart(hatStrap, new THREE.TorusGeometry(0.44, 0.01, 4, 44), { y: -0.014, rx: Math.PI / 2 });
+      addHatPart(hatStrap, bandGeometry({
+        radiusTop: 0.43,
+        radiusBottom: 0.472,
+        top: -0.012,
+        bottom: -0.19,
+        start: 0.95,
+        length: Math.PI * 2 - 1.9,
+        radial: 32,
+        rings: 3,
+        drop: 0.05,
+      }), {});
+      for (let i = 0; i < 8; i++) {
+        const phi = (i / 8) * Math.PI * 2 + 0.2;
+        addHatPart(hatMetal, new THREE.SphereGeometry(0.014, 6, 4), {
+          x: Math.sin(phi) * 0.441,
+          y: 0.026,
+          z: Math.cos(phi) * 0.441,
+        });
+      }
+      // Nasal: tira de metal que baja por la frente hasta la nariz.
+      addHatPart(hatMetal, new THREE.BoxGeometry(0.056, 0.13, 0.018), { y: -0.05, z: 0.418, rx: 0.05 });
+      addHatPart(hatMetal, new THREE.ConeGeometry(0.031, 0.06, 4), { y: -0.135, z: 0.422, rx: Math.PI, ry: Math.PI / 4 });
+      for (const side of [1, -1]) {
+        const horn = bentConeGeometry({
+          height: 0.3,
+          radius: 0.075,
+          tip: 0.014,
+          bendX: -side * 0.13,
+          bendZ: 0.025,
+          segments: 9,
+          radial: 14,
+          belly: 0.62,
+        });
+        addHatPart(hatHorn, horn, { x: side * 0.39, y: 0.13, rz: -side * 1.16 });
+        addHatPart(hatMetal, new THREE.CylinderGeometry(0.084, 0.078, 0.05, 12), {
+          x: side * 0.398,
+          y: 0.13,
+          rz: -side * 1.16,
+        });
+      }
+      break;
+    }
+    case 'laurel': {
+      // Corona de laurel: aro fino de latón con hojas alternas y cintas al
+      // final. Abre el frente para dejar ver la cara.
+      addHatPart(hatMetal, new THREE.TorusGeometry(0.452, 0.012, 4, 48), { y: 0.008, rx: Math.PI / 2 });
+      const gap = 0.5;
+      const count = 16;
+      for (let i = 0; i < count; i++) {
+        const phi = gap + (i / (count - 1)) * (Math.PI * 2 - gap * 2);
+        const side = i % 2 === 0 ? 1 : -1;
+        // Indexada como el aro: mergeGeometries no mezcla mallas con y sin
+        // índice, y la corona entera desaparecía al fusionar las hojas.
+        const leaf = mergeVertices(new THREE.OctahedronGeometry(0.075, 0));
+        addHatPart(hatMetal, leaf, {
+          x: Math.sin(phi) * 0.458,
+          y: 0.03 + (i % 2) * 0.03,
+          z: Math.cos(phi) * 0.458,
+          ry: phi,
+          rz: side * 0.75,
+          rx: -0.25,
+          sx: 0.42,
+          sy: 1.35,
+          sz: 0.17,
+        });
+      }
+      // Cintas anudadas en la nuca.
+      addHatPart(hatStrap, new THREE.BoxGeometry(0.022, 0.13, 0.007), { x: -0.045, y: -0.04, z: -0.458, rz: 0.22, rx: 0.2 });
+      addHatPart(hatStrap, new THREE.BoxGeometry(0.018, 0.11, 0.007), { x: 0.015, y: -0.055, z: -0.463, rz: -0.16, rx: 0.16 });
+      addHatPart(hatMetal, new THREE.SphereGeometry(0.022, 8, 6), { y: 0.005, z: -0.458, sx: 1.1, sy: 0.8 });
+      break;
+    }
+    case 'top': {
+      // Sombrero de copa: fieltro alto de copa recta, ala corta y cinta con
+      // hebilla. La pieza más formal del taller.
+      addHatPart(hatFelt, brimGeometry({ inner: 0.42, outer: 0.625, droop: 0.018, thickness: 0.032, wave: 0.014 }), { y: 0.003 });
+      addBrimEdge(0.629, -0.02, 0.012);
+      addHatPart(hatLining, new THREE.TorusGeometry(0.423, 0.008, 4, 42), { y: -0.006, rx: Math.PI / 2 });
+      addHatPart(hatFelt, new THREE.CylinderGeometry(0.37, 0.392, 0.5, 34), { y: 0.25 });
+      addHatPart(hatStrap, new THREE.CylinderGeometry(0.394, 0.398, 0.088, 34, 1, true), { y: 0.06 });
+      addBuckle(0.06, 0.405, 0.072);
+      stitchRing(hatStitches, { radius: 0.372, y: 0.492, count: 32, size: 0.008 });
+      break;
+    }
     case 'pointy':
     default: {
       // Sombrero de archimago: copa de fieltro con la punta doblada, ala corta
@@ -1005,7 +1149,7 @@ export function createWizard(look) {
       addBrimEdge(0.664, -0.066, 0.02);
       addHatPart(hatLining, new THREE.TorusGeometry(0.423, 0.008, 4, 40), { y: -0.008, rx: Math.PI / 2 });
       stitchAlong(hatStitches, brimStitches(0.42, 0.66, 0.632, -0.042, 0.03, 0.4, 46), { count: 46, size: 0.008, closed: true });
-      const coneCrown = bentConeGeometry({ height: 0.68, radius: 0.435, tip: 0.05, bendX: 0.2, bendZ: -0.12, segments: 18, radial: 30, belly: 0.68 });
+      const coneCrown = bentConeGeometry({ height: 0.62, radius: 0.425, tip: 0.05, bendX: 0.18, bendZ: -0.11, segments: 18, radial: 30, belly: 0.68 });
       addFolds(coneCrown, { count: 7, amp: 0.016, phase: 1.2, from: 0.06, to: 0.58 });
       dentGeometry(coneCrown, { x: 0.08, y: 0.32, z: 0.26, radius: 0.3, depth: 0.055 });
       addHatPart(hatFelt, coneCrown, { y: 0.005 });
@@ -1030,6 +1174,7 @@ export function createWizard(look) {
   addHatMesh(hatLining, hatLiningMat);
   addHatMesh(hatMetal, hatMetalMat);
   addHatMesh(hatFur, hatFurMat);
+  addHatMesh(hatHorn, hatHornMat);
   addHatMesh(hatStitches, hatStitchMat);
 
   // ------------------------------------------------------------------ bastón
@@ -1067,33 +1212,35 @@ export function createWizard(look) {
 
   // El asta se afina hacia la punta y lleva contera, puño envuelto y
   // abrazaderas de latón: la misma gramática en los seis bastones.
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.044, 0.072, 2.62, 7, 1), staffMat);
+  // El asta es fina de verdad: si el puño es más grueso que la mano, el mago
+  // no puede cerrar los dedos y parece que sostiene un poste, no un bastón.
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.056, 2.62, 7, 1), staffMat);
   shaft.position.y = 1.35;
   staffArt.add(shaft);
 
   const buttCap = new THREE.Mesh(new THREE.LatheGeometry([
     new THREE.Vector2(0.0, 0.0),
-    new THREE.Vector2(0.058, 0.0),
-    new THREE.Vector2(0.082, 0.04),
-    new THREE.Vector2(0.086, 0.1),
-    new THREE.Vector2(0.068, 0.18),
+    new THREE.Vector2(0.048, 0.0),
+    new THREE.Vector2(0.068, 0.04),
+    new THREE.Vector2(0.072, 0.1),
+    new THREE.Vector2(0.058, 0.18),
     new THREE.Vector2(0.0, 0.21),
   ], 10), staffMetalMat);
   buttCap.position.y = 0.035;
   staffArt.add(buttCap);
 
   for (const y of [0.95, 1.57]) {
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.076, 0.076, 0.036, 10), staffMetalMat);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.062, 0.032, 10), staffMetalMat);
     band.position.y = y;
     staffArt.add(band);
   }
   // Puño: manguito de cuero con surcos y una costura en hélice. Se agarra con
   // la mano entera y se lee como cuero, no como una rosca metálica.
-  const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.063, 0.067, 0.58, 9), staffWrapMat);
+  const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.05, 0.56, 9), staffWrapMat);
   sleeve.position.y = 1.29;
   staffArt.add(sleeve);
   for (let i = 0; i < 5; i++) {
-    const groove = new THREE.Mesh(new THREE.TorusGeometry(0.065, 0.007, 4, 10), staffDeep);
+    const groove = new THREE.Mesh(new THREE.TorusGeometry(0.048, 0.006, 4, 10), staffDeep);
     groove.rotation.x = Math.PI / 2;
     groove.position.y = 1.05 + i * 0.12;
     staffArt.add(groove);
@@ -1102,10 +1249,10 @@ export function createWizard(look) {
   for (let k = 0; k <= 24; k++) {
     const t = k / 24;
     const angle = t * Math.PI * 2 * 3.4;
-    seam.push(new THREE.Vector3(Math.cos(angle) * 0.066, 1.02 + t * 0.54, Math.sin(angle) * 0.066));
+    seam.push(new THREE.Vector3(Math.cos(angle) * 0.049, 1.02 + t * 0.54, Math.sin(angle) * 0.049));
   }
   staffArt.add(new THREE.Mesh(tubeFromPoints(seam, 0.008, 3), staffDeep));
-  for (const [x, y, z, r] of [[0.05, 0.7, 0.008, 0.05], [-0.045, 2.2, -0.016, 0.04]]) {
+  for (const [x, y, z, r] of [[0.035, 0.7, 0.008, 0.038], [-0.032, 2.2, -0.016, 0.03]]) {
     const knot = new THREE.Mesh(new THREE.SphereGeometry(r, 6, 4), staffMat);
     knot.position.set(x, y, z);
     staffArt.add(knot);
@@ -1433,7 +1580,7 @@ export function createWizard(look) {
     hatPivot.visible = adminFlag('look.hatVisible', true);
     staffGroup.visible = adminFlag('look.staffVisible', true);
     shadow.visible = adminFlag('look.shadow', true) && !dead;
-    hatGroup.scale.setScalar(HAT_SCALE * adminValue('size.hat', 1));
+    hatGroup.scale.setScalar(HAT_SCALE * hatFit(look.hat) * adminValue('size.hat', 1));
     staffGroup.scale.setScalar(STAFF_SCALE * adminValue('size.staff', 1));
   }
 
@@ -1799,6 +1946,9 @@ export function createWizard(look) {
         mixer.update(dt);
         applySecondary(time, moving, running);
         updateGaze(dt, moving);
+        // El clip de idle deja la mano abierta: los dedos se cierran sobre el
+        // asta para que el bastón se agarre en vez de apoyarse en la palma.
+        if (bones.Fingers_L) bones.Fingers_L.rotation.x = 1.05;
       }
 
       const access = adminFlag('anim.secondary', true) ? adminValue('anim.accessory', 1) : 0;

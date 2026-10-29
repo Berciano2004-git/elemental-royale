@@ -208,6 +208,10 @@ export const HATS = [
   { id: 'leaves', name: 'Capucha de cuero' },
   { id: 'dark', name: 'Capucha de paño' },
   { id: 'crystal', name: 'Diadema rúnica' },
+  { id: 'crown', name: 'Corona de rey mago' },
+  { id: 'viking', name: 'Casco vikingo' },
+  { id: 'laurel', name: 'Aro de laurel' },
+  { id: 'top', name: 'Sombrero de copa' },
 ];
 
 export const STAVES = [
