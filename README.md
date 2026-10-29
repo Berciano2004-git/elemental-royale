@@ -11,6 +11,9 @@ ser el último mago en pie mientras una tormenta arcana cierra el círculo.
 - Multijugador en línea real (misma red o servidor propio) y bots que completan la partida.
 - Interfaz íntegramente en español, sin dependencias de arte externas.
 
+📘 **Documentación técnica:** [ARQUITECTURA.md](ARQUITECTURA.md) explica el servidor, el
+protocolo, la predicción, la generación del mundo, el render y cómo ampliar cada sistema.
+
 ---
 
 ## ▶ Cómo jugar
@@ -51,14 +54,19 @@ npm start          # http://localhost:8080
 | **Clic derecho** | Hechizo secundario del poder activo |
 | **1 / 2** | Cambiar de poder equipado |
 | **3** | Combinación elemental (con dos elementos distintos) |
-| **Espacio** | Saltar |
+| **Espacio** | Saltar (también salta la cinemática de nado) |
 | **Shift** | Correr, consume aguante |
+| **V** | Primera persona / vista elevada |
+| **Ñ** | Consola del Archimago (reconfigurable) |
 | **Rueda** | Acercar / alejar la cámara |
 | **Tab** | Menú rápido / grimorio de poderes |
 | **Esc** | Pausa y ajustes |
 
 La recogida es automática: basta con caminar sobre un cristal. Si ya llevas dos poderes, el
 nuevo sustituye al activo y el anterior cae al suelo para que puedas recuperarlo.
+
+Al entrar en un lago o en el mar el mago empieza a nadar solo: va más lento y no puede correr ni
+saltar. La primera entrada dispara una breve cinemática de agua que puedes saltar con **Espacio**.
 
 ---
 
@@ -96,7 +104,8 @@ limita correr. Todos los hechizos tienen recarga visible en el HUD.
 Cada partida genera una isla distinta a partir de una semilla:
 
 - **Bosque verde** con robles, pinos, arbustos y mucha cobertura.
-- **Costas y mar** con olas animadas, playas y palmeras.
+- **Costas y mar** con olas animadas, playas y palmeras; se puede vadear la orilla y nadar
+  entre islas.
 - **Montañas** rocosas infranqueables, nieve en las cumbres y laderas de piedra.
 - **Desierto** con dunas, cactus y ruinas.
 - **Lugares especiales**: Arena Antigua, Torre Arcana, Aldea Olvidada, Ruinas del Sol,
@@ -111,9 +120,10 @@ Cada partida genera una isla distinta a partir de una semilla:
 
 En el **Taller arcano** puedes cambiar en tiempo real:
 
-- Seis sombreros: archimago, caminante, casco de cuero, capucha de cuero con vuelta de pelo,
-  capucha de paño y diadema rúnica. Comparten fieltro, cuero curtido, cinta, hebilla y
-  pespuntes; cambia la silueta, no el estilo, y todos envuelven el cráneo hasta la frente.
+- Diez sombreros: archimago, caminante, casco de cuero, capucha de cuero con vuelta de pelo,
+  capucha de paño, diadema rúnica, corona, casco vikingo, aro de laurel y sombrero de copa.
+  Comparten fieltro, cuero curtido, cinta, hebilla y pespuntes; cambia la silueta, no el estilo,
+  y todos envuelven el cráneo hasta la frente.
 - Seis bastones (madera, cristal, fuego, hielo, raíces y oscuro). Comparten contera de
   latón, asta de madera veteada, puño envuelto en cuero y un engarce de joyería; encima,
   una gema saturada con su halo. Cambia la pieza que la sostiene (engarce de latón, brasero
@@ -239,6 +249,9 @@ siendo un puñado de mallas.
 ---
 
 ## 🧠 Arquitectura
+
+El recorrido completo —procesos, protocolo, tick, predicción, mundo compartido, render, modelo y
+pruebas— está en **[ARQUITECTURA.md](ARQUITECTURA.md)**. Aquí va el resumen y el mapa de archivos.
 
 ```
 index.html               estructura de menús y HUD
