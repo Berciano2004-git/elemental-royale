@@ -26,6 +26,7 @@ import {
 import { HALF_WORLD } from '../shared/constants.js';
 import { clamp, createWorld, elevationAt, findOpenSpot, MOUNTAIN_LEVEL } from '../shared/worldgen.js';
 import { moveWithCollision, normalizeInput } from '../shared/movement.js';
+import { SWIM_DEPTH, SWIM_SPEED_MULT } from '../shared/constants.js';
 import { updateBots } from './bots.js';
 
 const r1 = (v) => Math.round(v * 10) / 10;
@@ -287,6 +288,7 @@ export function createGame(wss, options = {}) {
       case 'jump': {
         const p = client.player;
         if (!p || !p.alive || state.phase !== 'match') return;
+        if (p.swimming) return;
         if (p.jumpY > 0.01) return;
         const tune = adminTune(p);
         if (tune.jumpHeight <= 0) return;
@@ -328,7 +330,8 @@ export function createGame(wss, options = {}) {
         p.mvZ = 0;
         p.jumpY = 0;
         p.jumpV = 0;
-        send(client.ws, { t: 'adminTeleport', ok: true, x: r1(p.x), z: r1(p.z) });
+        p.swimming = state.world.depthAt(p.x, p.z) > SWIM_DEPTH;
+        send(client.ws, { t: 'adminTeleport', ok: true, x: r1(p.x), z: r1(p.z), swim: p.swimming });
         break;
       }
       case 'cast': {
@@ -500,6 +503,7 @@ export function createGame(wss, options = {}) {
       mvZ: 0,
       jumpY: 0,
       jumpV: 0,
+      swimming: false,
       admin: null,
     };
   }
@@ -1081,7 +1085,7 @@ export function createGame(wss, options = {}) {
       if (!p.alive) continue;
       p.mana = Math.min(MAX_MANA, p.mana + 9 * dt * adminTune(p).manaRegen);
       if (hasElement(p, 'water') && p.hp < MAX_HP) p.hp = Math.min(MAX_HP, p.hp + 1 * dt);
-      const wantsSprint = p.input.sprint && (Math.abs(p.input.x) + Math.abs(p.input.z) > 0.1) && p.stamina > 2;
+      const wantsSprint = p.input.sprint && !p.swimming && (Math.abs(p.input.x) + Math.abs(p.input.z) > 0.1) && p.stamina > 2;
       if (wantsSprint) p.stamina = Math.max(0, p.stamina - 22 * dt);
       else p.stamina = Math.min(MAX_STAMINA, p.stamina + 16 * dt);
     }
@@ -1114,10 +1118,21 @@ export function createGame(wss, options = {}) {
         mx = fx * (forward < 0 ? forward * tune.back : forward) + rx * right * tune.strafe;
         mz = fz * (forward < 0 ? forward * tune.back : forward) + rz * right * tune.strafe;
       }
+      // El agua manda: al hundirse hasta la cintura se pasa a nado, se pierde
+      // el sprint y el salto, y la velocidad baja. El cliente usa el mismo
+      // umbral para predecir, así que no hay tirones al entrar y salir.
+      p.swimming = s.world.depthAt(p.x, p.z) > SWIM_DEPTH;
+      if (p.swimming) {
+        p.jumpY = 0;
+        p.jumpV = 0;
+      }
       let speed = tune.walkSpeed;
-      if (hasElement(p, 'wind')) speed *= 1.1;
+      if (p.swimming) speed *= SWIM_SPEED_MULT;
+      else {
+        if (hasElement(p, 'wind')) speed *= 1.1;
+        if (p.input.sprint && p.stamina > 2) speed *= tune.runMult;
+      }
       if (p.slowUntil > s.matchTime) speed *= p.slowFactor;
-      if (p.input.sprint && p.stamina > 2) speed *= tune.runMult;
       const airborne = p.jumpY > 0.01;
       const airFactor = airborne ? 0.15 + tune.airControl * 0.85 : 1;
       const rate = (mx || mz ? tune.accel : tune.decel) * airFactor;
@@ -1480,6 +1495,7 @@ export function createGame(wss, options = {}) {
         mn: Math.round(p.mana),
         st: Math.round(p.stamina),
         j: r2(p.jumpY),
+        sw: p.swimming ? 1 : 0,
         sf: p.slowUntil > s.matchTime ? 1 : 0,
         place: p.place,
       })),

@@ -1528,7 +1528,10 @@ export function createWizard(look) {
     if (!handBone) return;
     handBone.updateWorldMatrix(true, false);
     handBone.getWorldPosition(gripWorld);
-    rig.getWorldQuaternion(rigQuat);
+    // Nadando el cuerpo va tumbado, pero el bastón se mantiene enhiesto y
+    // fuera del agua: se toma el giro del grupo (solo el rumbo), no el del rig.
+    if (swimLean > 0.25 && rig.parent) rig.parent.getWorldQuaternion(rigQuat);
+    else rig.getWorldQuaternion(rigQuat);
     gripWorld.add(gripOffsetWorld.copy(GRIP_OFFSET).applyQuaternion(rigQuat));
     gripWorld.y += GRIP_LIFT + bob;
     staffGroup.position.copy(handBone.worldToLocal(gripWorld));
@@ -1796,6 +1799,8 @@ export function createWizard(look) {
   let stopTimer = 0;
   let wasMoving = false;
   let dead = false;
+  // Inclinación del cuerpo al nadar, suavizada para no dar un tirón en la orilla.
+  let swimLean = 0;
 
   // Mirada. Los ojos van pintados en la cara, así que el gesto nace del cuello:
   // la cabeza abre el giro, el pecho lo acompaña un poco y, quieto, el mago
@@ -1845,6 +1850,40 @@ export function createWizard(look) {
     bones.Head.rotateY(gazeYaw * gain);
     bones.Head.rotateX(-gazePitch * gain);
     bones.Spine?.rotateY(gazeYaw * gain * 0.16);
+  }
+
+  // Nado: el cuerpo se inclina, la mano libre barre el agua, las piernas
+  // patalean y la cabeza se levanta para no tragar agua. Se suma después del
+  // mixer igual que el resto de gestos procedurales.
+  function applySwimPose(time) {
+    if (!adminFlag('anim.secondary', true) || dead) return;
+    if (adminValue('anim.master', 1) <= 0.001) return;
+    const amp = adminValue('anim.accessory', 1);
+    if (amp <= 0.001) return;
+    const stroke = Math.sin(time * 2.6);
+    bones.Spine?.rotateX(0.24 + stroke * 0.04);
+    bones.Chest?.rotateX(0.1);
+    bones.Neck?.rotateX(-0.5);
+    bones.Head?.rotateX(-0.28);
+    // La mano izquierda sostiene el bastón: se mueve poco para que el asta no
+    // barra el agua ni cruce el cuerpo.
+    if (bones.UpperArm_L) {
+      bones.UpperArm_L.rotateZ((0.6 + stroke * 0.06) * amp);
+      bones.UpperArm_L.rotateX((-0.42 - stroke * 0.1) * amp);
+      bones.Forearm_L?.rotateX(-0.3 * amp);
+    }
+    // La derecha es la que nada: barre por delante del pecho y vuelve.
+    if (bones.UpperArm_R) {
+      bones.UpperArm_R.rotateZ((-0.35 - stroke * 0.2) * amp);
+      bones.UpperArm_R.rotateY((0.5 + stroke * 0.55) * amp);
+      bones.UpperArm_R.rotateX((-0.3 - Math.max(0, stroke) * 0.35) * amp);
+      bones.Forearm_R?.rotateX((-0.5 - Math.max(0, stroke) * 0.4) * amp);
+    }
+    const kick = Math.sin(time * 5.4);
+    bones.UpperLeg_L?.rotateX((kick * 0.34 - 0.05) * amp);
+    bones.UpperLeg_R?.rotateX((-kick * 0.34 - 0.05) * amp);
+    bones.LowerLeg_L?.rotateX((0.24 - kick * 0.2) * amp);
+    bones.LowerLeg_R?.rotateX((0.24 + kick * 0.2) * amp);
   }
 
   // Movimiento secundario procedural: se suma DESPUÉS del mixer, así que no
@@ -1967,7 +2006,7 @@ export function createWizard(look) {
       gazeHold = 0;
       glanceTimer = 1.4 + Math.random() * 2.4;
     },
-    update(dt, time, moving, running = false) {
+    update(dt, time, moving, running = false, swimming = false) {
       castTimer = Math.max(0, castTimer - dt);
       hitTimer = Math.max(0, hitTimer - dt);
       startTimer = Math.max(0, startTimer - dt);
@@ -1989,19 +2028,28 @@ export function createWizard(look) {
         shadow.visible = false;
         glow.visible = false;
       } else if (mixer) {
-        shadow.visible = adminFlag('look.shadow', true);
+        shadow.visible = adminFlag('look.shadow', true) && !swimming;
         if (forcedAction) play(forced, 0.12);
         else if (hitTimer > 0) play('hit', 0.1);
         else if (castTimer > 0) play('cast', 0.14);
+        else if (swimming) play('idle', 0.3);
         else if (startTimer > 0) play('start', 0.1);
         else if (stopTimer > 0) play('stop', 0.1);
         else if (moving) play(running ? 'run' : 'walk', 0.18);
         else play('idle', 0.22);
       }
 
+      // El cuerpo se inclina al entrar en el agua y se endereza al salir. Con
+      // cada brazada rueda un poco, como un nadador de verdad.
+      const leanTarget = swimming && !dead ? 1.15 : 0;
+      swimLean += (leanTarget - swimLean) * Math.min(1, dt * 3.6);
+      rig.rotation.x = swimLean;
+      rig.rotation.z = Math.sin(time * 2.6 + 0.6) * 0.07 * (swimLean / 1.15);
+
       if (mixer && !paused) {
         mixer.update(dt);
-        applySecondary(time, moving, running);
+        if (swimming && castTimer <= 0 && hitTimer <= 0) applySwimPose(time);
+        else applySecondary(time, moving, running);
         updateGaze(dt, moving);
       }
 

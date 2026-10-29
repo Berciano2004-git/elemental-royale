@@ -4,6 +4,8 @@
 import { HALF_WORLD, WORLD_SIZE } from './constants.js';
 
 export const WATER_LEVEL = 0.4;
+// Altura del plano de agua visible. El terreno queda por debajo en mares y lagos.
+export const WATER_SURFACE = 0.12;
 export const MOUNTAIN_LEVEL = 0.795;
 export const BEACH_LEVEL = 0.437;
 export const LAND_ELEV = 0.411;
@@ -417,15 +419,64 @@ export function createWorld(seed) {
     return !propBlocked(x, z, radius);
   }
 
+  function inBounds(x, z, pad = 10) {
+    return x > -HALF_WORLD + pad && x < HALF_WORLD - pad && z > -HALF_WORLD + pad && z < HALF_WORLD - pad;
+  }
+
+  function depthAt(x, z) {
+    return WATER_SURFACE - heightAt(x, z, seed);
+  }
+
+  // Nadar: el cuerpo entero dentro del agua y sin troncos ni rocas delante.
+  // El radio de muestra es el mismo que usa el movimiento, de modo que la
+  // transición orilla-agua no deja huecos por los que colarse.
+  function canSwim(x, z, radius = 2) {
+    if (!inBounds(x, z)) return false;
+    const r = radius * 0.72;
+    if (depthAt(x, z) < 0.14) return false;
+    if (
+      depthAt(x + r, z) < 0.14 ||
+      depthAt(x - r, z) < 0.14 ||
+      depthAt(x, z + r) < 0.14 ||
+      depthAt(x, z - r) < 0.14
+    ) {
+      return false;
+    }
+    return !propBlocked(x, z, radius);
+  }
+
+  // Vado: arena mojada y agua baja. Es el puente entre caminar y nadar, para
+  // que la orilla no sea un muro invisible.
+  function canWade(x, z, radius = 2) {
+    if (!inBounds(x, z)) return false;
+    const r = radius * 0.72;
+    const wadeable = (d) => d > -1.7 && d < 1.5;
+    if (!wadeable(depthAt(x, z))) return false;
+    if (
+      !wadeable(depthAt(x + r, z)) ||
+      !wadeable(depthAt(x - r, z)) ||
+      !wadeable(depthAt(x, z + r)) ||
+      !wadeable(depthAt(x, z - r))
+    ) {
+      return false;
+    }
+    return !propBlocked(x, z, radius);
+  }
+
   return {
     seed,
     props,
     landmarks,
+    waterSurface: WATER_SURFACE,
     heightAt: (x, z) => heightAt(x, z, seed),
+    depthAt,
+    isWater: (x, z) => depthAt(x, z) > 0.02,
     sampleAt: (x, z) => sampleAt(x, z, seed),
     biomeAt: (x, z) => biomeAt(x, z, seed),
     isWalkable: (x, z) => isWalkable(x, z, seed),
     canStand,
+    canSwim,
+    canWade,
     propBlocked,
     terrainBlocked,
   };

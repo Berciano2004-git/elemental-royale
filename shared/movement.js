@@ -7,13 +7,23 @@ export function normalizeInput(mx, mz) {
   return { mx, mz };
 }
 
+// Un punto es pisable si se puede andar, vadear la orilla o nadar. El nado
+// comparte el mismo deslizamiento, así que bordear una isla a braza no cambia
+// el tacto del control.
+export function canTraverse(world, x, z, radius) {
+  if (world.canStand(x, z, radius)) return true;
+  if (world.canSwim && world.canSwim(x, z, radius)) return true;
+  if (world.canWade && world.canWade(x, z, radius)) return true;
+  return false;
+}
+
 export function moveWithCollision(world, x, z, dx, dz, radius) {
   const nx = x + dx;
   const nz = z + dz;
   if (dx === 0 && dz === 0) return { x, z };
-  if (world.canStand(nx, nz, radius)) return { x: nx, z: nz };
-  if (dx !== 0 && world.canStand(x + dx, z, radius)) return { x: x + dx, z };
-  if (dz !== 0 && world.canStand(x, z + dz, radius)) return { x, z: z + dz };
+  if (canTraverse(world, nx, nz, radius)) return { x: nx, z: nz };
+  if (dx !== 0 && canTraverse(world, x + dx, z, radius)) return { x: x + dx, z };
+  if (dz !== 0 && canTraverse(world, x, z + dz, radius)) return { x, z: z + dz };
   return { x, z };
 }
 

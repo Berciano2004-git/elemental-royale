@@ -234,10 +234,10 @@ export class EffectsView {
     return this.world.heightAt(x, z);
   }
 
-  addRing(x, z, color, maxRadius, life = 0.55, width = 1.0) {
+  addRing(x, z, color, maxRadius, life = 0.55, width = 1.0, y = null) {
     const material = makeRingMaterial(color, 0.9);
     const mesh = new THREE.Mesh(ringGeometry, material);
-    mesh.position.set(x, this.ground(x, z) + 0.25, z);
+    mesh.position.set(x, y == null ? this.ground(x, z) + 0.25 : y, z);
     mesh.scale.setScalar(2);
     this.group.add(mesh);
     this.rings.push({ mesh, material, life, maxLife: life, maxRadius, width });

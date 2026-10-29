@@ -13,6 +13,7 @@ import './admin/admin.css';
 
 const app = document.getElementById('app');
 const sceneCanvas = document.getElementById('scene');
+const swimCineEl = document.getElementById('swim-cine');
 const initialSettings = ui.getSettings();
 
 const preview = createWizardPreview();
@@ -47,6 +48,16 @@ let serverAllowsAdmin = false;
 let tuneTimer = 0;
 let mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 const keys = new Set();
+
+// La cinemática la dirige la escena (cámara); la interfaz solo abre y cierra
+// las barras y el rótulo del plano.
+window.addEventListener('wizard:cinematic', (event) => {
+  const detail = event.detail || {};
+  if (detail.kind !== 'swim' || !swimCineEl) return;
+  const start = detail.phase === 'start';
+  swimCineEl.classList.toggle('active', start);
+  if (start) audio.splash();
+});
 
 audio.setVolume(initialSettings.volume);
 audio.setMuted(initialSettings.muted);
@@ -323,6 +334,8 @@ function setPaused(value) {
   ui.showPause(value);
   if (value) {
     keys.clear();
+    swimCineEl?.classList.remove('active');
+    gameView.skipCine();
     document.exitPointerLock?.();
   } else if (gameView.firstPerson && document.pointerLockElement !== sceneCanvas) {
     // Al reanudar en primera persona se recupera el puntero: el clic del botón
@@ -529,6 +542,7 @@ window.addEventListener('keydown', (event) => {
   else if (event.code === 'Digit2') sendSelect(1);
   else if (event.code === 'Digit3') sendCombo();
   else if (event.code === 'Space') {
+    if (gameView.skipCine()) return;
     if (gameView.jump()) {
       net.send('jump');
       audio.jump();

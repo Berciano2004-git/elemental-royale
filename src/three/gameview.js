@@ -1,7 +1,14 @@
 // Escena de partida: cámara en tercera persona, mundo, magos, hechizos y predicción local.
 
 import * as THREE from 'three';
-import { ELEMENTS, HALF_WORLD, PLAYER_RADIUS, PLAYER_SPEED } from '../../shared/constants.js';
+import {
+  ELEMENTS,
+  HALF_WORLD,
+  PLAYER_RADIUS,
+  PLAYER_SPEED,
+  SWIM_DEPTH,
+  SWIM_SPEED_MULT,
+} from '../../shared/constants.js';
 import { moveWithCollision, normalizeInput } from '../../shared/movement.js';
 import { createWorld } from '../../shared/worldgen.js';
 import { WorldView } from './world.js';
@@ -52,6 +59,13 @@ export class GameView {
     this.selfPred = { x: 0, z: 0 };
     this.selfMoving = false;
     this.jumpTimer = 0;
+    // Nado: estado local, mezcla de la cámara de agua y estela.
+    this.swimming = false;
+    this.wasSwimming = false;
+    this.swimCam = 0;
+    this.swimWake = 0;
+    this.swimCine = null;
+    this.swimCineCooldown = 0;
     this.lastSnapshot = null;
     this.input = { up: false, down: false, left: false, right: false, sprint: false };
     // Cámara en primera persona: se mira con el ratón (puntero bloqueado) y el
@@ -171,6 +185,12 @@ export class GameView {
     this.jumpV = 0;
     this.mvX = 0;
     this.mvZ = 0;
+    this.swimming = false;
+    this.wasSwimming = false;
+    this.swimCam = 0;
+    this.swimWake = 0;
+    this.swimCine = null;
+    this.swimCineCooldown = 0;
     this.debugProps = [];
 
     for (const info of data.players || []) {
@@ -202,6 +222,7 @@ export class GameView {
         deadAt: -1,
         slots: [null, null],
         active: 0,
+        swimBlend: 0,
       });
     }
 
@@ -407,9 +428,19 @@ export class GameView {
         mz = fz * (forward < 0 ? forward * back : forward) + rz * right * strafe;
       }
 
+      // Mismo criterio que el servidor: al hundirse por debajo del umbral se
+      // entra en nado, se pierde sprint y salto, y la velocidad baja.
+      const swimming = this.worldData.depthAt(this.selfPred.x, this.selfPred.z) > SWIM_DEPTH;
+      this.swimming = swimming;
       let speed = this.adminValue('move.walkSpeed', PLAYER_SPEED);
-      if (Array.isArray(selfSnap.sl) && selfSnap.sl.some((s) => s && s.e === 'wind')) speed *= 1.1;
-      if (this.input.sprint && selfSnap.st > 2) speed *= this.adminValue('move.runMultiplier', 1.32);
+      if (swimming) {
+        speed *= SWIM_SPEED_MULT;
+        this.jumpY = 0;
+        this.jumpV = 0;
+      } else {
+        if (Array.isArray(selfSnap.sl) && selfSnap.sl.some((s) => s && s.e === 'wind')) speed *= 1.1;
+        if (this.input.sprint && selfSnap.st > 2) speed *= this.adminValue('move.runMultiplier', 1.32);
+      }
       if (selfSnap.sf) speed *= 0.62;
       if (this.frozen) {
         mx = 0;
@@ -482,6 +513,7 @@ export class GameView {
       this.selfMoving = false;
       this.mvX = 0;
       this.mvZ = 0;
+      this.swimming = false;
     }
 
     // Interpolación de los demás magos.
@@ -509,25 +541,41 @@ export class GameView {
       if (this.adminFlag('physics.groundSnap', true) || state.lastGroundY === undefined) {
         state.lastGroundY = groundY;
       }
+      // En el agua el mago se hunde hasta el pecho; la mezcla evita el salto
+      // seco al entrar y salir en la orilla.
+      const inWater = this.worldData.depthAt(state.x, state.z) > SWIM_DEPTH;
+      const swimTarget = inWater ? 1 : 0;
+      const blendRate = Math.min(1, dt * 3.4);
+      state.swimBlend += (swimTarget - state.swimBlend) * blendRate;
       if (state.isSelf) state.jumpY = this.jumpY;
       else state.jumpY += ((state.targetJumpY || 0) - state.jumpY) * Math.min(1, dt * 18);
-      const y = state.lastGroundY + state.jumpY;
+      if (inWater) state.jumpY = 0;
+      const scaleY = state.isSelf ? this.characterScaleY() : 1;
+      const surface = this.worldData.waterSurface;
+      const swimY = Math.max(state.lastGroundY, surface - 0.9 * scaleY) + Math.sin(time * 1.9 + state.id) * 0.08;
+      const walkY = state.lastGroundY + state.jumpY;
+      const y = walkY + (swimY - walkY) * state.swimBlend;
       state.model.group.position.set(state.x, y, state.z);
       state.model.group.rotation.y = state.yaw;
-      const sprinting = state.isSelf && this.selfMoving && !!this.input.sprint;
-      state.model.update(dt, time + state.id * 0.7, state.isSelf ? this.selfMoving : moving, sprinting);
+      const sprinting = state.isSelf && this.selfMoving && !!this.input.sprint && !inWater;
+      state.model.update(dt, time + state.id * 0.7, state.isSelf ? this.selfMoving : moving, sprinting, state.swimBlend > 0.35);
     }
+
+    // Estela, salpicadura y plano de entrada al agua.
+    this.updateSwimFx(dt);
 
     // Cámara.
     this.updateCamera(dt);
 
     // Anillo bajo el propio mago.
     if (this.selfMarker && selfState) {
-      this.selfMarker.position.set(
-        selfState.x,
-        this.worldData.heightAt(selfState.x, selfState.z) + 0.16,
-        selfState.z
-      );
+      // Nadando el anillo sube a la superficie: si se quedara en el fondo
+      // quedaría tapado por el agua y costaría seguirse la pista.
+      const ringY =
+        this.worldData.depthAt(selfState.x, selfState.z) > SWIM_DEPTH
+          ? this.worldData.waterSurface + 0.04
+          : this.worldData.heightAt(selfState.x, selfState.z) + 0.16;
+      this.selfMarker.position.set(selfState.x, ringY, selfState.z);
       this.selfMarker.visible = selfState.alive && !this.firstPerson;
       this.selfMarkerMaterial.opacity = 0.38 + Math.sin(time * 3) * 0.1;
     }
@@ -559,10 +607,114 @@ export class GameView {
   // Vista: alterna entre la cámara elevada de siempre y la primera persona.
   // El FOV se abre un poco en primera persona para que el mundo no se sienta
   // estrecho, y se restaura al volver.
+  updateSwimFx(dt) {
+    this.swimCineCooldown = Math.max(0, this.swimCineCooldown - dt);
+    const self = this.states.get(this.selfId);
+    if (!self || !this.worldData || !this.effects) return;
+    const swimming = this.swimming && self.alive;
+    const surface = this.worldData.waterSurface;
+    if (swimming && !this.wasSwimming) {
+      // Salpicadura de entrada: gotas altas y dos anillos que se abren.
+      this.effects.particles.burst(self.x, surface - 0.4, self.z, 0xcdeff7, 30, {
+        speed: 9,
+        up: 9,
+        life: 0.9,
+        size: 4.4,
+        gravity: 16,
+        height: 0.5,
+      });
+      this.effects.addRing(self.x, self.z, 0xbdeaf3, 12, 1.0, 0.6, surface + 0.05);
+      this.effects.addRing(self.x, self.z, 0xffffff, 7, 0.65, 0.35, surface + 0.06);
+      this.startSwimCinematic();
+    }
+    this.wasSwimming = swimming;
+    this.swimWake = Math.max(0, this.swimWake - dt);
+    if (swimming && this.selfMoving && this.swimWake <= 0) {
+      this.swimWake = 0.22;
+      const wx = self.x - Math.sin(self.yaw) * 2.4;
+      const wz = self.z - Math.cos(self.yaw) * 2.4;
+      this.effects.addRing(wx, wz, 0xbdeaf3, 6 + Math.random() * 3, 0.85, 0.45, surface + 0.05);
+      this.effects.particles.burst(wx, surface - 0.2, wz, 0xdff7ff, 4, {
+        speed: 3.5,
+        up: 3.5,
+        life: 0.5,
+        size: 3,
+        gravity: 12,
+        height: 0.3,
+      });
+    }
+  }
+
+  // Plano de entrada al agua: la cámara baja al nivel del mar, rodea al mago
+  // mientras la salpicadura se abre y vuelve sola a la vista de juego.
+  startSwimCinematic() {
+    if (this.firstPerson || this.swimCine || this.swimCineCooldown > 0) return false;
+    const self = this.states.get(this.selfId);
+    if (!self || !self.alive) return false;
+    this.swimCine = {
+      t: 0,
+      dur: 3.8,
+      side: Math.random() < 0.5 ? -1 : 1,
+      base: self.yaw,
+      from: this.camera.position.clone(),
+      fromLook: this.cameraLook ? this.cameraLook.clone() : null,
+    };
+    this.dispatchCinematic('start');
+    return true;
+  }
+
+  skipCine() {
+    if (!this.swimCine) return false;
+    this.swimCine = null;
+    this.swimCineCooldown = 10;
+    this.dispatchCinematic('end');
+    return true;
+  }
+
+  dispatchCinematic(phase) {
+    window.dispatchEvent(new CustomEvent('wizard:cinematic', { detail: { phase, kind: 'swim' } }));
+  }
+
+  updateSwimCine(dt) {
+    const cine = this.swimCine;
+    if (!cine) return false;
+    const self = this.states.get(this.selfId);
+    cine.t += dt;
+    if (!self || !self.alive || cine.t >= cine.dur) {
+      this.swimCine = null;
+      this.swimCineCooldown = 18;
+      this.dispatchCinematic('end');
+      return false;
+    }
+    const p = Math.min(1, cine.t / cine.dur);
+    const smooth = (v) => v * v * (3 - 2 * v);
+    const surface = this.worldData.waterSurface;
+    const enter = smooth(Math.min(1, p / 0.2));
+    const angle = cine.base + cine.side * (0.55 + p * 0.8);
+    const dist = 15.5 - 1.4 * Math.sin(p * Math.PI);
+    const desired = new THREE.Vector3(
+      self.x + Math.sin(angle) * dist,
+      surface + 0.85 + Math.sin(p * Math.PI) * 1.15 + Math.sin(cine.t * 2.3 + 1.1) * 0.08,
+      self.z + Math.cos(angle) * dist
+    );
+    desired.x += Math.sin(cine.t * 1.7) * 0.22;
+    const look = new THREE.Vector3(self.x, surface + 0.95, self.z);
+    const pos = cine.from.clone().lerp(desired, enter);
+    const lookNow = cine.fromLook
+      ? cine.fromLook.clone().lerp(look, smooth(Math.min(1, p / 0.18)))
+      : look;
+    this.camera.position.copy(pos);
+    this.cameraLook = lookNow.clone();
+    this.camera.lookAt(lookNow);
+    this.camera.updateMatrixWorld();
+    return true;
+  }
+
   toggleFirstPerson(force) {
     const next = typeof force === 'boolean' ? force : !this.firstPerson;
     if (next === this.firstPerson) return this.firstPerson;
     this.firstPerson = next;
+    if (next) this.skipCine();
     if (next) {
       const dx = this.aim.x - this.selfPred.x;
       const dz = this.aim.z - this.selfPred.z;
@@ -591,6 +743,7 @@ export class GameView {
 
   updateCamera(dt, immediate = false) {
     if (!this.worldData) return;
+    if (this.swimCine && this.updateSwimCine(dt)) return;
     let targetX = this.selfPred.x;
     let targetZ = this.selfPred.z;
     const selfState = this.states.get(this.selfId);
@@ -599,10 +752,13 @@ export class GameView {
       // balanceo es corto y vertical: sugiere el paso sin marear.
       const groundY = this.worldData.heightAt(this.selfPred.x, this.selfPred.z);
       const scale = this.characterScaleY();
-      const eye = new THREE.Vector3(this.selfPred.x, groundY + 2.9 * scale + this.jumpY, this.selfPred.z);
+      // Nadando el ojo se queda justo por encima de la superficie, no a dos
+      // metros bajo el agua.
+      const swimEye = Math.max(groundY + 2.9 * scale, this.worldData.waterSurface + 1.0 * scale);
+      const eye = new THREE.Vector3(this.selfPred.x, (this.swimming ? swimEye : groundY + 2.9 * scale) + this.jumpY, this.selfPred.z);
       if (this.selfMoving && !this.frozen) {
-        this.fpBob += dt * 9.5;
-        eye.y += Math.sin(this.fpBob) * 0.045 * scale;
+        this.fpBob += dt * (this.swimming ? 3.4 : 9.5);
+        eye.y += Math.sin(this.fpBob) * (this.swimming ? 0.08 : 0.045) * scale;
       } else {
         this.fpBob = 0;
       }
@@ -639,8 +795,13 @@ export class GameView {
     const min = this.adminValue('camera.minDistance', 18);
     const max = Math.max(min + 1, this.adminValue('camera.maxDistance', 60));
     this.zoom = Math.max(min, Math.min(max, this.zoom));
-    const radius = this.zoom * 1.5;
-    const pitch = (this.adminValue('camera.pitch', 54.8) * Math.PI) / 180;
+    // Cámara de agua: más baja, algo más cerca y mirando a la línea de flotación.
+    const swimMix = this.swimming ? 1 : 0;
+    this.swimCam += (swimMix - this.swimCam) * (immediate ? 1 : Math.min(1, dt * 2.2));
+    const radius = this.zoom * (1 - this.swimCam * 0.58) * 1.5;
+    const basePitchDeg = this.adminValue('camera.pitch', 54.8);
+    const pitchDeg = basePitchDeg + (23 - basePitchDeg) * this.swimCam;
+    const pitch = (pitchDeg * Math.PI) / 180;
     const cos = Math.cos(pitch);
     const sin = Math.sin(pitch);
     let distance = radius;
@@ -650,7 +811,7 @@ export class GameView {
     if (this.adminFlag('camera.collision', true)) {
       for (let i = 0; i < 7; i++) {
         const cz = targetZ + distance * cos;
-        if (this.worldData.canStand(targetX, cz, 0.45)) break;
+        if (this.worldData.canStand(targetX, cz, 0.45) || this.worldData.isWater(targetX, cz)) break;
         distance *= 0.86;
       }
       distance = Math.max(radius * 0.4, distance);
@@ -666,11 +827,17 @@ export class GameView {
       camZ
     );
     if (this.adminFlag('camera.collision', true)) {
-      desired.y = Math.max(desired.y, camGround + 1.8);
+      // Sobre el agua el suelo del cámara es la superficie, no el fondo.
+      const floor = this.worldData.isWater(targetX, camZ)
+        ? this.worldData.waterSurface + 0.9
+        : camGround + 1.8;
+      desired.y = Math.max(desired.y, floor);
     }
 
     const jump = selfState ? selfState.jumpY : 0;
-    const focus = new THREE.Vector3(targetX, groundY + 2.4 * this.characterScaleY() + jump, targetZ);
+    const focusWalk = groundY + 2.4 * this.characterScaleY() + jump;
+    const focusSwim = this.worldData.waterSurface + 0.9 * this.characterScaleY();
+    const focus = new THREE.Vector3(targetX, focusWalk + (focusSwim - focusWalk) * this.swimCam, targetZ);
     const aimBias = new THREE.Vector3(this.aim.x - targetX, 0, this.aim.z - targetZ);
     if (aimBias.lengthSq() > 4) {
       aimBias.normalize().multiplyScalar(6 * this.adminValue('camera.sensitivity', 1));
@@ -692,7 +859,7 @@ export class GameView {
   }
 
   jump() {
-    if (!this.matchActive || this.frozen || this.jumpY > 0.01) return false;
+    if (!this.matchActive || this.frozen || this.swimming || this.jumpY > 0.01) return false;
     if (!this.adminFlag('physics.enabled', true)) return false;
     const h = this.adminValue('jump.height', 3.4);
     const t = Math.max(0.1, this.adminValue('jump.duration', 0.55));
@@ -841,6 +1008,14 @@ export class GameView {
 
   clearMatch() {
     this.matchActive = false;
+    if (this.swimCine) {
+      this.swimCine = null;
+      this.dispatchCinematic('end');
+    }
+    this.swimming = false;
+    this.wasSwimming = false;
+    this.swimCam = 0;
+    this.swimCineCooldown = 0;
     if (this.firstPerson) this.toggleFirstPerson(false);
     this.debugSignature = null;
     this.clearDebugGroup();

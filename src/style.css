@@ -1990,3 +1990,102 @@ kbd {
     display: none;
   }
 }
+
+/* ========================================================================
+   CINEMÁTICA DE NADO
+   ======================================================================== */
+
+.swim-cine {
+  position: fixed;
+  inset: 0;
+  z-index: 58;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.55s ease;
+}
+
+.swim-cine.active {
+  opacity: 1;
+}
+
+.swim-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  background: linear-gradient(180deg, #02040c 0%, rgba(4, 9, 22, 0.92) 70%, rgba(4, 9, 22, 0) 100%);
+  transition: height 0.85s cubic-bezier(0.22, 0.85, 0.2, 1);
+}
+
+.swim-bar.top {
+  top: 0;
+}
+
+.swim-bar.bottom {
+  bottom: 0;
+  background: linear-gradient(0deg, #02040c 0%, rgba(4, 9, 22, 0.92) 70%, rgba(4, 9, 22, 0) 100%);
+}
+
+.swim-cine.active .swim-bar.top,
+.swim-cine.active .swim-bar.bottom {
+  height: 11vh;
+}
+
+.swim-caption {
+  position: absolute;
+  left: clamp(22px, 6vw, 78px);
+  bottom: calc(11vh + 30px);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 18px;
+  border-left: 2px solid var(--gold);
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.7s ease 0.35s, transform 0.7s cubic-bezier(0.22, 0.85, 0.2, 1) 0.35s;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.65);
+}
+
+.swim-cine.active .swim-caption {
+  opacity: 1;
+  transform: none;
+}
+
+.swim-eyebrow {
+  font-size: 9px;
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.swim-caption strong {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 500;
+  font-size: clamp(36px, 6vw, 62px);
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.swim-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(226, 239, 255, 0.72);
+}
+
+.swim-skip {
+  position: absolute;
+  right: clamp(20px, 5vw, 60px);
+  bottom: calc(11vh + 16px);
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(226, 239, 255, 0.45);
+  opacity: 0;
+  transition: opacity 0.6s ease 0.6s;
+}
+
+.swim-cine.active .swim-skip {
+  opacity: 1;
+}

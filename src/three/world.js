@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { ELEMENTS, RARITIES, WORLD_SIZE } from '../../shared/constants.js';
-import { terrainSample } from '../../shared/worldgen.js';
+import { WATER_SURFACE, terrainSample } from '../../shared/worldgen.js';
 
 const BIOME_COLORS = {
   water: [0x2b6270, 0x1d4b5c],
@@ -283,7 +283,7 @@ export class WorldView {
       `,
     });
     this.water = new THREE.Mesh(geometry, this.waterMaterial);
-    this.water.position.y = 0.12;
+    this.water.position.y = WATER_SURFACE;
     this.group.add(this.water);
   }
 

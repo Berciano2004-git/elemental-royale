@@ -11,6 +11,12 @@ export const PLAYER_SPEED = 94;
 export const PLAYER_RADIUS = 2.1;
 export const MATCH_PLAYERS = 10;
 
+// Nado: se activa cuando el cuerpo queda por debajo de la superficie. La
+// velocidad baja y no se puede correr ni saltar, así que cruzar un lago es una
+// decisión táctica y no un atajo gratis.
+export const SWIM_DEPTH = 0.32;
+export const SWIM_SPEED_MULT = 0.56;
+
 export const TICK_RATE = 30;
 export const SNAPSHOT_RATE = 20;
 export const LOBBY_TIME = 15;

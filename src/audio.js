@@ -184,6 +184,15 @@ export class SoundEngine {
     this.noise(0.06, 0.025, 420, 'lowpass');
   }
 
+  // Entrada al agua: el golpe grave del cuerpo y la espuma que se abre.
+  splash() {
+    if (!this.ensure()) return;
+    this.noise(0.62, 0.15, 1100, 'lowpass', 0, 240);
+    this.noise(0.4, 0.06, 3200, 'highpass', 0.02, 900);
+    this.tone(150, 0.34, 'sine', 0.06, 0, 0.02, 70);
+    this.tone(360, 0.16, 'triangle', 0.025, 0.05, 0.01, 220);
+  }
+
   cast(element) {
     if (!this.ensure()) return;
     switch (element) {
