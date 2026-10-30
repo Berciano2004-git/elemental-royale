@@ -11,3 +11,7 @@ screenshots/
 # Artefactos temporales de rig/inspección
 tmp-rig/
 tmp-inspect/
+
+# Adjuntos y metadatos de herramientas
+.cloud-attachments/
+.freebuff/

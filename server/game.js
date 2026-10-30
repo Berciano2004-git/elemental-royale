@@ -1048,6 +1048,23 @@ export function createGame(wss, options = {}) {
       });
     }
     broadcastSnapshot();
+
+    // Historial persistente en Archil. El módulo (y la SDK) solo se cargan si
+    // hay ARCHIL_API_KEY, y un fallo de red nunca debe afectar al final.
+    if (process.env.ARCHIL_API_KEY) {
+      const summary = {
+        seed: state.seed,
+        players: state.players.length,
+        humans: joinedClients().length,
+        durationS: Math.round(state.matchTime),
+        winner: state.winner ? state.winner.name : null,
+        kills: state.winner ? state.winner.kills : 0,
+        top: sorted.slice(0, 3).map((pl) => ({ name: pl.name, kills: pl.kills, place: pl.place || 2 })),
+      };
+      import('./history.js')
+        .then(({ recordMatchSafely }) => recordMatchSafely(summary))
+        .catch((error) => console.warn(`⚠ Archil: ${error.message}`));
+    }
   }
 
   function toLobby() {

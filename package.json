@@ -9,11 +9,13 @@
     "start": "node server/index.js --prod",
     "test:match": "node scripts/test-match.mjs",
     "test:end": "node scripts/test-end.mjs",
+    "history": "node scripts/archil-history.mjs",
     "rig:optimize": "node tools/optimize-wizard.mjs",
     "rig": "node tools/rig-wizard.mjs",
     "rig:audit": "node tools/audit-wizard.mjs"
   },
   "dependencies": {
+    "disk": "1.9.0",
     "three": "^0.180.0",
     "ws": "^8.18.0"
   },

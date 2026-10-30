@@ -9,6 +9,16 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createGame } from './game.js';
 
+// Carga .env (y .env.local) si existen: así ARCHIL_API_KEY, PORT o ADMIN_TOOLS
+// pueden venir del fichero local sin exportarlas en la consola.
+for (const file of ['.env', '.env.local']) {
+  try {
+    process.loadEnvFile?.(file);
+  } catch {
+    // El fichero no existe: se usan las variables del sistema.
+  }
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 const dist = path.join(root, 'dist');
