@@ -24,8 +24,8 @@ const HAT_FIT = {
   viking: 0.88,
   laurel: 0.9,
   top: 0.85,
-  earflap: 0.9,
-  fur: 0.94,
+  earflap: 0.92,
+  fur: 0.92,
 };
 const hatFit = (hat) => HAT_FIT[hat] ?? 0.86;
 const STAFF_SCALE = 0.62;
@@ -1145,71 +1145,65 @@ export function createWizard(look) {
       // Casco de cuero cosido: calota de gajos, cresta remachada de la frente a
       // la nuca, orejeras que llegan a la mandíbula y vuelta cosida. Es la
       // pieza de viaje de las estepas, no un yelmo de guerra.
-      addHatPart(hatLeather, capShellGeometry({ radius: 0.418, height: 0.365, radial: 30, rings: 12 }), {});
+      addHatPart(hatLeather, capShellGeometry({ radius: 0.455, height: 0.385, radial: 30, rings: 12 }), {});
       // Cresta: la costura central que une los dos gajos de la calota.
       const crest = [];
       for (let k = 0; k <= 12; k++) {
         const theta = (k / 12) * Math.PI;
-        crest.push(new THREE.Vector3(0, Math.sin(theta) * 0.368, Math.cos(theta) * 0.418));
+        crest.push(new THREE.Vector3(0, Math.sin(theta) * 0.388, Math.cos(theta) * 0.455));
       }
       addHatPart(hatStrap, tubeFromPoints(crest, 0.014, 4), {});
       stitchAlong(hatStitches, crest.map((p) => new THREE.Vector3(p.x, p.y + 0.009, p.z * 1.012)), { count: 18, size: 0.008 });
       // Vuelta de la frente, con sus dos ribetes y un remache a cada lado.
-      addHatPart(hatLeather, new THREE.CylinderGeometry(0.421, 0.432, 0.062, 30, 1, true), { y: 0.012 });
-      addHatPart(hatStrap, new THREE.TorusGeometry(0.424, 0.008, 4, 40), { y: 0.043, rx: Math.PI / 2 });
-      addHatPart(hatStrap, new THREE.TorusGeometry(0.433, 0.009, 4, 40), { y: -0.019, rx: Math.PI / 2 });
+      addHatPart(hatLeather, new THREE.CylinderGeometry(0.458, 0.469, 0.062, 30, 1, true), { y: 0.012 });
+      addHatPart(hatStrap, new THREE.TorusGeometry(0.461, 0.008, 4, 40), { y: 0.043, rx: Math.PI / 2 });
+      addHatPart(hatStrap, new THREE.TorusGeometry(0.472, 0.009, 4, 40), { y: -0.019, rx: Math.PI / 2 });
       for (const side of [1, -1]) {
-        const start = side > 0 ? Math.PI / 2 - 0.34 : -Math.PI / 2 - 0.34;
-        // Orejera: banda que baja pegada a la mejilla.
+        const start = side > 0 ? Math.PI / 2 - 0.46 : -Math.PI / 2 - 0.46;
+        // Orejera: media caña que baja pegada a la mejilla y cubre la oreja.
         addHatPart(hatLeather, bandGeometry({
-          radiusTop: 0.419,
-          radiusBottom: 0.452,
-          top: -0.01,
-          bottom: -0.205,
+          radiusTop: 0.45,
+          radiusBottom: 0.46,
+          top: -0.012,
+          bottom: -0.248,
           start,
-          length: 0.68,
-          radial: 8,
-          rings: 3,
+          length: 0.92,
+          radial: 10,
+          rings: 4,
         }), {});
         const hem = [];
-        for (let i = 0; i <= 8; i++) {
-          const phi = start + (i / 8) * 0.68;
-          hem.push(new THREE.Vector3(Math.sin(phi) * 0.454, -0.207, Math.cos(phi) * 0.454));
+        for (let i = 0; i <= 10; i++) {
+          const phi = start + (i / 10) * 0.92;
+          hem.push(new THREE.Vector3(Math.sin(phi) * 0.462, -0.25, Math.cos(phi) * 0.462));
         }
         addHatPart(hatStrap, tubeFromPoints(hem, 0.011, 4), {});
-        stitchAlong(hatStitches, hem, { count: 9, size: 0.008 });
+        stitchAlong(hatStitches, hem, { count: 11, size: 0.008 });
         addHatPart(hatMetal, new THREE.SphereGeometry(0.019, 6, 4), {
-          x: Math.sin(start + 0.34) * 0.448,
-          y: -0.07,
-          z: Math.cos(start + 0.34) * 0.448,
+          x: Math.sin(start + 0.46) * 0.478,
+          y: -0.09,
+          z: Math.cos(start + 0.46) * 0.478,
         });
       }
       break;
     }
     case 'fur': {
-      // Capucha de piel: calota de cuero y una vuelta de pelo espesa que
-      // envuelve la frente y las orejas. El pelo no se tiñe; el cuero sí.
-      addHatPart(hatLeather, capShellGeometry({
-        radius: 0.402,
-        height: 0.375,
-        radial: 28,
-        rings: 11,
-        folds: 7,
-        foldAmp: 0.006,
-        phase: 0.4,
-      }), {});
-      addHatPart(hatLining, new THREE.TorusGeometry(0.404, 0.012, 4, 34), { y: 0.012, rx: Math.PI / 2 });
-      // Costura de la nuca, la única línea limpia del cuero.
-      const furSeam = [];
-      for (let k = 0; k <= 10; k++) {
-        const theta = (k / 10) * Math.PI * 0.92;
-        furSeam.push(new THREE.Vector3(0, Math.sin(theta) * 0.378, -Math.cos(theta) * 0.402));
+      // Capucha de piel: el cuero cubre cráneo y nuca y el pelo hace la vuelta
+      // del rostro y el dobladillo. El pelo no se tiñe; el cuero sí.
+      const radius = 0.458;
+      const height = 0.405;
+      const gap = 2.05;
+      addHatPart(hatLeather, hoodShellGeometry({ radius, height, gap, flare: 0.14, rings: 16 }), {});
+      addHatPart(hatLining, hoodShellGeometry({ radius: radius * 0.985, height: height * 0.985, gap, flare: 0.14, rings: 14 }), {});
+      for (const side of [1, -1]) {
+        const rim = hoodRimPoints({ radius, height, gap, side, rings: 16 });
+        addHatPart(hatStrap, tubeFromPoints(rim, 0.012, 5), {});
+        // Vuelta de pelo que sigue la abertura del rostro.
+        addFurAlong(rim.slice(4), 24, 0.055, 0.016);
       }
-      addHatPart(hatStrap, tubeFromPoints(furSeam, 0.009, 4), {});
-      // Rollo de piel y dos vueltas de mechones que rompen el borde.
-      addHatPart(hatFur, new THREE.TorusGeometry(0.434, 0.076, 6, 22), { y: 0.03, rx: Math.PI / 2 });
-      addFurAlong(ringPoints(0.47, 0.032, 34), 30, 0.06, 0.016);
-      addFurAlong(ringPoints(0.466, 0.086, 34), 22, 0.05, 0.014);
+      const hem = hoodHemPoints({ radius, height, gap, flare: 0.14, radial: 28 });
+      addHatPart(hatStrap, tubeFromPoints(hem, 0.014, 5), {});
+      addFurAlong(hem, 30, 0.06, 0.017);
+      stitchAlong(hatStitches, hem, { count: 26, size: 0.008 });
       break;
     }
     case 'top': {
