@@ -1554,7 +1554,8 @@ export function createWizard(look) {
     stretchBone(bones.UpperLeg_R, adminValue('size.legs', 1));
     // Las piernas más largas hunden los pies: se sube el rig lo justo para que
     // la planta vuelva a tocar el suelo.
-    rig.position.y = (adminValue('size.legs', 1) - 1) * 0.79 * MODEL_SCALE;
+    legLift = (adminValue('size.legs', 1) - 1) * 0.79 * MODEL_SCALE;
+    rig.position.y = legLift;
   }
 
   function applyAdminAppearance() {
@@ -1801,6 +1802,20 @@ export function createWizard(look) {
   let dead = false;
   // Inclinación del cuerpo al nadar, suavizada para no dar un tirón en la orilla.
   let swimLean = 0;
+  // Salto: la escena entrega la altura y la velocidad reales; aquí se convierten
+  // en recogida de piernas al subir, extensión al caer y flexión al aterrizar.
+  let airBlend = 0;
+  let airRise = 0;
+  let lastAirVy = 0;
+  let landKick = 0;
+  let wasAirborne = false;
+  // Pisada: se lee la fase del propio clip, así el peso cae cuando el pie toca
+  // el suelo y no con un temporizador aparte que se desincroniza al correr.
+  let stepPhase = 0;
+  let stepIndex = -1;
+  let stepCount = 0;
+  let strideW = 0;
+  let legLift = 0;
 
   // Mirada. Los ojos van pintados en la cara, así que el gesto nace del cuello:
   // la cabeza abre el giro, el pecho lo acompaña un poco y, quieto, el mago
@@ -1850,6 +1865,95 @@ export function createWizard(look) {
     bones.Head.rotateY(gazeYaw * gain);
     bones.Head.rotateX(-gazePitch * gain);
     bones.Spine?.rotateY(gazeYaw * gain * 0.16);
+  }
+
+  // Cuerpo al andar. El clip mueve los pies, pero el peso, la cadera y los
+  // hombros apenas se notaban y el mago patinaba como un maniquí. Aquí se
+  // endereza la espalda y el peso cae sobre el pie que apoya.
+  function applyStride(dt, moving, running, air) {
+    const amp = adminFlag('anim.secondary', true) ? adminValue('anim.step', 1) : 0;
+    const target = moving && air < 0.5 ? (running ? 1 : 0.72) : 0;
+    strideW += (target - strideW) * Math.min(1, dt * (target > strideW ? 9 : 5));
+    const walking = current && (current.getClip().name === 'walk' || current.getClip().name === 'run');
+    if (walking) {
+      const duration = current.getClip().duration || 1;
+      const phase = (current.time / duration) % 1;
+      stepPhase = phase;
+      // Dos apoyos por ciclo. El contador deja que el sonido del paso caiga
+      // exactamente cuando el pie toca el suelo.
+      const index = Math.floor(phase * 2);
+      if (index !== stepIndex) {
+        if (stepIndex >= 0) stepCount++;
+        stepIndex = index;
+      }
+    } else {
+      stepIndex = -1;
+      stepPhase += (0 - stepPhase) * Math.min(1, dt * 4);
+    }
+    const w = strideW * amp;
+    if (w <= 0.001) return;
+    const p = stepPhase * Math.PI * 2;
+    // La cadera baja en el apoyo y sube al pasar el pie; sin esto el mago
+    // flota por el mapa con las piernas moviéndose debajo.
+    const ground = 0.5 + 0.5 * Math.cos(p * 2);
+    rig.position.y = legLift - 0.065 * ground * w * (running ? 1.25 : 1);
+    const sway = Math.sin(p);
+    // Erguido: se quita la chepa del clip, el pecho sale y la cabeza queda
+    // nivelada para que no parezca que mira el suelo.
+    bones.Spine?.rotateX(-0.2 * w);
+    bones.Chest?.rotateX(-0.13 * w);
+    // El cuello se endereza para mirar al frente, no al suelo.
+    bones.Neck?.rotateX(-0.1 * w);
+    // Peso sobre el pie que apoya y hombros en contra del giro de la cadera.
+    bones.Hips?.rotateZ(sway * 0.075 * w);
+    bones.Spine?.rotateZ(-sway * 0.04 * w);
+    bones.Chest?.rotateY(-sway * 0.1 * w);
+    bones.Head?.rotateY(sway * 0.022 * w);
+  }
+
+  // Salto: piernas recogidas al subir, casi extendidas al caer, y una flexión
+  // corta al aterrizar proporcional a la velocidad del golpe. Se aplica sobre
+  // la pose que dejó el mixer, así que no ensucia los clips ni se acumula.
+  function applyAirPose(air, rise, crouch) {
+    const amp = adminValue('anim.air', 1);
+    if (amp <= 0.001) return;
+    if (air > 0.001) {
+      const up = Math.max(0, rise);
+      const down = Math.max(0, -rise);
+      const w = air * amp;
+      // Recogida: la rodilla sube por delante y el talón se mete debajo, como
+      // cuando se salta de verdad. Al caer las piernas se abren para buscar
+      // el suelo.
+      bones.UpperLeg_L?.rotateX((-0.95 * up - 0.22 * down) * w);
+      bones.UpperLeg_R?.rotateX((-0.7 * up + 0.12 * down) * w);
+      bones.LowerLeg_L?.rotateX((1.5 * up + 0.4 * down) * w);
+      bones.LowerLeg_R?.rotateX((1.25 * up + 0.48 * down) * w);
+      // Brazos: el libre sube y el del bastón se recoge para que el asta no
+      // pegue con la cabeza.
+      bones.UpperArm_R?.rotateZ(-0.5 * w);
+      bones.UpperArm_R?.rotateX(-0.35 * w);
+      bones.Forearm_R?.rotateX(-0.5 * w);
+      bones.UpperArm_L?.rotateZ(0.22 * w);
+      bones.UpperArm_L?.rotateX(-0.3 * w);
+      bones.Forearm_L?.rotateX(-0.35 * w);
+      bones.Spine?.rotateX((0.08 * up - 0.06 * down) * w);
+      bones.Chest?.rotateX(0.05 * up * w);
+      // Al caer mira el punto de aterrizaje, no el horizonte.
+      bones.Neck?.rotateX((0.2 * down - 0.12 * up) * w);
+    }
+    if (crouch > 0.001) {
+      const c = crouch * amp;
+      bones.UpperLeg_L?.rotateX(-0.62 * c);
+      bones.UpperLeg_R?.rotateX(-0.58 * c);
+      bones.LowerLeg_L?.rotateX(1.05 * c);
+      bones.LowerLeg_R?.rotateX(0.98 * c);
+      bones.Spine?.rotateX(0.3 * c);
+      bones.Chest?.rotateX(0.14 * c);
+      bones.Neck?.rotateX(-0.26 * c);
+      bones.UpperArm_L?.rotateX(0.34 * c);
+      bones.UpperArm_R?.rotateX(0.3 * c);
+      rig.position.y = legLift - 0.32 * c;
+    }
   }
 
   // Nado: el cuerpo se inclina, la mano libre barre el agua, las piernas
@@ -1925,6 +2029,17 @@ export function createWizard(look) {
     },
     get clip() {
       return current ? current.getClip().name : null;
+    },
+    // Pisadas completadas y fase del ciclo: la escena usa el contador para
+    // que el sonido del paso caiga justo en el apoyo del pie.
+    get steps() {
+      return stepCount;
+    },
+    get stepPhase() {
+      return stepPhase;
+    },
+    get airborne() {
+      return airBlend > 0.35;
     },
     get clipInfo() {
       if (!current) return { name: null, time: 0, duration: 1, paused: adminFlag('anim.paused', false) };
@@ -2006,7 +2121,7 @@ export function createWizard(look) {
       gazeHold = 0;
       glanceTimer = 1.4 + Math.random() * 2.4;
     },
-    update(dt, time, moving, running = false, swimming = false) {
+    update(dt, time, moving, running = false, swimming = false, motion = null) {
       castTimer = Math.max(0, castTimer - dt);
       hitTimer = Math.max(0, hitTimer - dt);
       startTimer = Math.max(0, startTimer - dt);
@@ -2018,6 +2133,28 @@ export function createWizard(look) {
         else stopTimer = 0.32;
         wasMoving = moving;
       }
+
+      // Salto: la altura y la velocidad vertical vienen de la escena, que es
+      // quien integra la misma gravedad que el servidor.
+      const airborne = !!(motion && motion.airborne) && !swimming && !dead;
+      const vy = motion && Number.isFinite(motion.vy) ? motion.vy : 0;
+      const vy0 = motion && motion.vy0 > 1 ? motion.vy0 : 1;
+      airRise = Math.max(-1.4, Math.min(1, vy / vy0));
+      if (airborne) {
+        airBlend += (1 - airBlend) * Math.min(1, dt * 16);
+        lastAirVy = vy;
+      } else {
+        if (wasAirborne) {
+          // El golpe se mide con la velocidad de caída: un salto corto no hunde
+          // al mago como una caída desde lo alto.
+          landKick = Math.min(1.25, Math.max(0.32, -lastAirVy / vy0));
+        }
+        airBlend += (0 - airBlend) * Math.min(1, dt * 12);
+        lastAirVy = 0;
+      }
+      wasAirborne = airborne;
+      landKick = Math.max(0, landKick - dt * 3.2);
+      const crouch = landKick * landKick * (3 - 2 * landKick);
 
       const paused = adminFlag('anim.paused', false);
       const forced = adminCfg && adminCfg['anim.clip'] !== 'auto' ? adminCfg['anim.clip'] : null;
@@ -2033,6 +2170,7 @@ export function createWizard(look) {
         else if (hitTimer > 0) play('hit', 0.1);
         else if (castTimer > 0) play('cast', 0.14);
         else if (swimming) play('idle', 0.3);
+        else if (airborne) play('idle', 0.14);
         else if (startTimer > 0) play('start', 0.1);
         else if (stopTimer > 0) play('stop', 0.1);
         else if (moving) play(running ? 'run' : 'walk', 0.18);
@@ -2048,8 +2186,13 @@ export function createWizard(look) {
 
       if (mixer && !paused) {
         mixer.update(dt);
+        rig.position.y = legLift;
         if (swimming && castTimer <= 0 && hitTimer <= 0) applySwimPose(time);
-        else applySecondary(time, moving, running);
+        else {
+          applyStride(dt, moving, running, airBlend);
+          applyAirPose(airBlend, airRise, crouch);
+          applySecondary(time, moving, running);
+        }
         updateGaze(dt, moving);
       }
 

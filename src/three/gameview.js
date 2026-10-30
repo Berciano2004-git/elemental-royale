@@ -232,6 +232,7 @@ export class GameView {
         targetYaw: 0,
         jumpY: 0,
         targetJumpY: 0,
+        prevJumpY: 0,
         hp: 100,
         shield: 0,
         alive: true,
@@ -604,6 +605,9 @@ export class GameView {
       this.swimming = false;
     }
 
+    // Velocidad de despegue del salto configurado: normaliza la subida y la
+    // caída para que la pose se lea igual con cualquier altura.
+    const jumpVy0 = (4 * this.adminValue('jump.height', 3.4)) / Math.max(0.1, this.adminValue('jump.duration', 0.55));
     // Interpolación de los demás magos.
     for (const state of this.states.values()) {
       let moving = false;
@@ -638,6 +642,11 @@ export class GameView {
       if (state.isSelf) state.jumpY = this.jumpY;
       else state.jumpY += ((state.targetJumpY || 0) - state.jumpY) * Math.min(1, dt * 18);
       if (inWater) state.jumpY = 0;
+      // Velocidad vertical real: propia del salto local o derivada del salto
+      // interpolado de los demás, para que su pose también suba y baje bien.
+      const prevJumpY = state.prevJumpY ?? state.jumpY;
+      const jumpVy = state.isSelf ? this.jumpV : dt > 0 ? (state.jumpY - prevJumpY) / dt : 0;
+      state.prevJumpY = state.jumpY;
       const scaleY = state.isSelf ? this.characterScaleY() : 1;
       const surface = this.worldData.waterSurface;
       const swimY = Math.max(state.lastGroundY, surface - 0.9 * scaleY) + Math.sin(time * 1.9 + state.id) * 0.08;
@@ -646,7 +655,18 @@ export class GameView {
       state.model.group.position.set(state.x, y, state.z);
       state.model.group.rotation.y = state.yaw;
       const sprinting = state.isSelf && this.selfMoving && !!this.input.sprint && !inWater;
-      state.model.update(dt, time + state.id * 0.7, state.isSelf ? this.selfMoving : moving, sprinting, state.swimBlend > 0.35);
+      state.model.update(
+        dt,
+        time + state.id * 0.7,
+        state.isSelf ? this.selfMoving : moving,
+        sprinting,
+        state.swimBlend > 0.35,
+        {
+          airborne: state.jumpY > 0.02 && !inWater,
+          vy: inWater ? 0 : jumpVy,
+          vy0: jumpVy0,
+        }
+      );
     }
 
     // Estela, salpicadura y plano de entrada al agua.

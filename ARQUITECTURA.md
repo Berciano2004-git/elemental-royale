@@ -538,6 +538,15 @@ Es el módulo más grande del cliente. Carga `public/models/mago.glb`, clona el 
   y `death`. Los cambios de clip se funden; `walk`/`run` comparten fase. Encima, gestos
   procedurales: respiración, balanceo de brazos/torso, mirada de la cabeza, mecido del bastón y
   pose de nado.
+- **Marcha con peso**: el clip mueve los pies, pero el cuerpo se corrige después del mixer para
+  que no parezca un maniquí: la espalda y el pecho se enderezan, la cabeza mira al frente, la
+  cadera baja en el apoyo y se mece, y el pecho gira al contrario que la cadera en cada zancada
+  (`anim.step`). La fase se lee del propio clip, así que el peso y el sonido del paso caen
+  siempre en el apoyo del pie y el ritmo cambia solo al pasar de andar a correr.
+- **Salto**: `gameview` entrega altura y velocidad vertical a `update()`. Con ellas se recogen
+  las piernas al subir, se abren al caer y el mago se flexiona al tocar el suelo de forma
+  proporcional al golpe (`anim.air`). No hay animación de salto horneada: la pose se suma en
+  tiempo real, así que funciona con cualquier altura o fuerza de caída configurada.
 - **Gorro**: se genera por código (fieltro, cuero, cinta, forro, hebillas, pespuntes) y se cuelga
   del hueso `Head`. Hay diez siluetas: archimago, caminante, casco de cuero, capucha de cuero,
   capucha de paño, diadema rúnica, corona, casco vikingo, aro de laurel y sombrero de copa.

@@ -217,6 +217,12 @@ vuelo), `start`/`stop` (entrada y frenada que empalman con el contacto del ciclo
 sin capturas externas. Todos los armónicos del `idle` cierran en una vuelta entera para que
 el bucle no tenga saltos en la costura.
 
+Encima del mixer se suman gestos calculados en tiempo real: al andar el mago se yergue, la
+cadera baja en cada apoyo y los hombros contradicen el giro de la cadera; al saltar recoge las
+piernas en la subida, las abre en la caída y se flexiona al aterrizar según la velocidad del
+golpe. La fase del paso sale del propio clip, así que el sonido de la pisada suena justo
+cuando el pie toca el suelo y se acelera al correr.
+
 El horneado mide la planta de las botas en cada fotograma y ajusta `Root` en vertical para
 que el pie de apoyo quede sobre el suelo: evita hundimientos y deja que la altura de la
 cadera la dicte la pierna que carga. En `death` el ajuste se hace sobre todo el cuerpo.

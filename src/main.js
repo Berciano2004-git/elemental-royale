@@ -36,7 +36,7 @@ let wasAlive = true;
 let inputTimer = null;
 let lookTimer = null;
 let nameTimer = null;
-let footstepTimer = 0;
+let lastFootsteps = 0;
 let regionTimer = 0;
 let lastSpectateName = null;
 let lastFrame = performance.now();
@@ -882,14 +882,14 @@ function loop(now) {
     updateSpectate();
     updateAimCursor();
 
-    if (gameView.selfMoving && !paused) {
-      footstepTimer += dt;
-      if (footstepTimer > 0.36) {
-        footstepTimer = 0;
-        audio.footstep();
-      }
-    } else {
-      footstepTimer = 0.2;
+    // El sonido del paso sale del propio ciclo de andar: suena cuando el pie
+    // apoya y el ritmo cambia solo al pasar de caminar a correr.
+    const selfModel = gameView.states.get(selfId)?.model;
+    const steps = selfModel ? selfModel.steps : 0;
+    if (!selfModel || steps < lastFootsteps) lastFootsteps = steps;
+    if (!paused && steps !== lastFootsteps) {
+      lastFootsteps = steps;
+      audio.footstep();
     }
 
     regionTimer += dt;

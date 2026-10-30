@@ -117,6 +117,14 @@ export const GROUPS = [
           num('anim.head', 'Movimiento de la cabeza', 1, 0, 2, 0.01, { unit: '×' }),
           num('anim.cloth', 'Túnica y mangas', 1, 0, 2, 0.01, { unit: '×' }),
           num('anim.accessory', 'Accesorios (bastón y gorro)', 1, 0, 2, 0.01, { unit: '×' }),
+          num('anim.step', 'Peso de la pisada', 1, 0, 2, 0.01, {
+            unit: '×',
+            hint: 'Cuánto se hunde la cadera, se endereza la espalda y gira el hombro en cada paso.',
+          }),
+          num('anim.air', 'Pose de salto', 1, 0, 2, 0.01, {
+            unit: '×',
+            hint: 'Recogida de piernas en el aire y flexión al aterrizar.',
+          }),
           toggle('anim.secondary', 'Activar movimiento secundario', true),
         ],
       },
