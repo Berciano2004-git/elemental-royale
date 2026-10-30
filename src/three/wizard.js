@@ -24,6 +24,8 @@ const HAT_FIT = {
   viking: 0.88,
   laurel: 0.9,
   top: 0.85,
+  earflap: 0.9,
+  fur: 0.94,
 };
 const hatFit = (hat) => HAT_FIT[hat] ?? 0.86;
 const STAFF_SCALE = 0.62;
@@ -783,7 +785,7 @@ export function createWizard(look) {
   hatPivot.position.y = 0.205;
   hatPivot.add(hatGroup);
 
-  // Los seis gorros son piezas del mismo taller: fieltro teñible, cuero
+  // Los gorros son piezas del mismo taller: fieltro teñible, cuero
   // curtido, ribetes cosidos y herrajes de latón. Cambian la forma, no el
   // lenguaje, y todas envuelven el cráneo en vez de posarse encima.
   const hatFelt = [];
@@ -1139,6 +1141,77 @@ export function createWizard(look) {
       addHatPart(hatMetal, new THREE.SphereGeometry(0.022, 8, 6), { y: 0.005, z: -0.458, sx: 1.1, sy: 0.8 });
       break;
     }
+    case 'earflap': {
+      // Casco de cuero cosido: calota de gajos, cresta remachada de la frente a
+      // la nuca, orejeras que llegan a la mandíbula y vuelta cosida. Es la
+      // pieza de viaje de las estepas, no un yelmo de guerra.
+      addHatPart(hatLeather, capShellGeometry({ radius: 0.418, height: 0.365, radial: 30, rings: 12 }), {});
+      // Cresta: la costura central que une los dos gajos de la calota.
+      const crest = [];
+      for (let k = 0; k <= 12; k++) {
+        const theta = (k / 12) * Math.PI;
+        crest.push(new THREE.Vector3(0, Math.sin(theta) * 0.368, Math.cos(theta) * 0.418));
+      }
+      addHatPart(hatStrap, tubeFromPoints(crest, 0.014, 4), {});
+      stitchAlong(hatStitches, crest.map((p) => new THREE.Vector3(p.x, p.y + 0.009, p.z * 1.012)), { count: 18, size: 0.008 });
+      // Vuelta de la frente, con sus dos ribetes y un remache a cada lado.
+      addHatPart(hatLeather, new THREE.CylinderGeometry(0.421, 0.432, 0.062, 30, 1, true), { y: 0.012 });
+      addHatPart(hatStrap, new THREE.TorusGeometry(0.424, 0.008, 4, 40), { y: 0.043, rx: Math.PI / 2 });
+      addHatPart(hatStrap, new THREE.TorusGeometry(0.433, 0.009, 4, 40), { y: -0.019, rx: Math.PI / 2 });
+      for (const side of [1, -1]) {
+        const start = side > 0 ? Math.PI / 2 - 0.34 : -Math.PI / 2 - 0.34;
+        // Orejera: banda que baja pegada a la mejilla.
+        addHatPart(hatLeather, bandGeometry({
+          radiusTop: 0.419,
+          radiusBottom: 0.452,
+          top: -0.01,
+          bottom: -0.205,
+          start,
+          length: 0.68,
+          radial: 8,
+          rings: 3,
+        }), {});
+        const hem = [];
+        for (let i = 0; i <= 8; i++) {
+          const phi = start + (i / 8) * 0.68;
+          hem.push(new THREE.Vector3(Math.sin(phi) * 0.454, -0.207, Math.cos(phi) * 0.454));
+        }
+        addHatPart(hatStrap, tubeFromPoints(hem, 0.011, 4), {});
+        stitchAlong(hatStitches, hem, { count: 9, size: 0.008 });
+        addHatPart(hatMetal, new THREE.SphereGeometry(0.019, 6, 4), {
+          x: Math.sin(start + 0.34) * 0.448,
+          y: -0.07,
+          z: Math.cos(start + 0.34) * 0.448,
+        });
+      }
+      break;
+    }
+    case 'fur': {
+      // Capucha de piel: calota de cuero y una vuelta de pelo espesa que
+      // envuelve la frente y las orejas. El pelo no se tiñe; el cuero sí.
+      addHatPart(hatLeather, capShellGeometry({
+        radius: 0.402,
+        height: 0.375,
+        radial: 28,
+        rings: 11,
+        folds: 7,
+        foldAmp: 0.006,
+        phase: 0.4,
+      }), {});
+      addHatPart(hatLining, new THREE.TorusGeometry(0.404, 0.012, 4, 34), { y: 0.012, rx: Math.PI / 2 });
+      // Costura de la nuca, la única línea limpia del cuero.
+      const furSeam = [];
+      for (let k = 0; k <= 10; k++) {
+        const theta = (k / 10) * Math.PI * 0.92;
+        furSeam.push(new THREE.Vector3(0, Math.sin(theta) * 0.378, -Math.cos(theta) * 0.402));
+      }
+      addHatPart(hatStrap, tubeFromPoints(furSeam, 0.009, 4), {});
+      // Rollo de piel y dos vueltas de mechones que rompen el borde.
+      addHatPart(hatFur, new THREE.TorusGeometry(0.434, 0.076, 6, 22), { y: 0.03, rx: Math.PI / 2 });
+      addFurAlong(ringPoints(0.47, 0.032, 34), 30, 0.06, 0.016);
+      addFurAlong(ringPoints(0.466, 0.086, 34), 22, 0.05, 0.014);
+      break;
+    }
     case 'top': {
       // Sombrero de copa: fieltro alto de copa recta, ala corta y cinta con
       // hebilla. La pieza más formal del taller.
@@ -1281,7 +1354,7 @@ export function createWizard(look) {
   });
   materials.push(orbMat);
 
-  // Cabeza del bastón: un engarce de latón y, sobre él, la gema. Los seis
+  // Cabeza del bastón: un engarce de latón y, sobre él, la gema. Todos
   // comparten el orden contera → asta → puño → abrazadera → engarce → gema,
   // y solo cambia la pieza que la sostiene, para que se lean como un taller.
   const headBase = 2.6;
@@ -1435,6 +1508,59 @@ export function createWizard(look) {
       keeper.rotation.x = Math.PI / 2;
       staffArt.add(keeper);
       orb = addGem(2.98, 0.17, 1, { shape: 'orb' });
+      break;
+    }
+    case 'spiral': {
+      // Asta tallada en espiral: una arista de la misma madera da vueltas al
+      // asta entera y remata en un engarce bajo, pegado a la gema.
+      const coil = [];
+      for (let k = 0; k <= 54; k++) {
+        const t = k / 54;
+        const angle = t * Math.PI * 2 * 7.4;
+        const radius = 0.046 - t * 0.014;
+        coil.push(new THREE.Vector3(Math.cos(angle) * radius, 0.34 + t * 2.02, Math.sin(angle) * radius));
+      }
+      staffArt.add(new THREE.Mesh(tubeFromPoints(coil, 0.013, 4), staffDeep));
+      addSocket(0.072, 0.14, 2.58);
+      addBezel(0.094, 2.66, 5, 0.11);
+      orb = addGem(2.9, 0.18, 1.85);
+      break;
+    }
+    case 'moon': {
+      // Media luna de latón: dos cuernos que suben desde el engarce y abrazan
+      // la gema por los lados, sin jaula ni garra.
+      addSocket(0.075, 0.16, 2.56);
+      const crescent = [];
+      for (let k = 0; k <= 28; k++) {
+        const a = -Math.PI * 0.78 + (k / 28) * Math.PI * 1.56;
+        crescent.push(new THREE.Vector3(Math.sin(a) * 0.2, 2.86 - Math.cos(a) * 0.2, 0));
+      }
+      staffArt.add(new THREE.Mesh(tubeFromPoints(crescent, 0.021, 5), staffMetalMat));
+      orb = addGem(2.86, 0.155, 1, { shape: 'orb' });
+      break;
+    }
+    case 'sun': {
+      // Disco solar: aro de latón con rayos alternos y la esfera encastrada en
+      // el centro, delante del disco.
+      addSocket(0.07, 0.14, 2.56);
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.175, 0.022, 20), staffMetalMat);
+      disc.position.y = 2.9;
+      disc.rotation.x = Math.PI / 2;
+      staffArt.add(disc);
+      for (let i = 0; i < 12; i++) {
+        const angle = (i / 12) * Math.PI * 2;
+        const length = i % 2 === 0 ? 0.16 : 0.1;
+        const ray = new THREE.Mesh(new THREE.ConeGeometry(0.028, length, 4), staffMetalMat);
+        ray.position.set(
+          Math.cos(angle) * (0.175 + length / 2),
+          2.9 + Math.sin(angle) * (0.175 + length / 2),
+          0
+        );
+        ray.rotation.z = angle - Math.PI / 2;
+        staffArt.add(ray);
+      }
+      orb = addGem(2.9, 0.11, 1, { shape: 'orb' });
+      orb.position.z = 0.045;
       break;
     }
     case 'crystal':

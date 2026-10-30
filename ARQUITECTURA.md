@@ -548,10 +548,12 @@ Es el módulo más grande del cliente. Carga `public/models/mago.glb`, clona el 
   proporcional al golpe (`anim.air`). No hay animación de salto horneada: la pose se suma en
   tiempo real, así que funciona con cualquier altura o fuerza de caída configurada.
 - **Gorro**: se genera por código (fieltro, cuero, cinta, forro, hebillas, pespuntes) y se cuelga
-  del hueso `Head`. Hay diez siluetas: archimago, caminante, casco de cuero, capucha de cuero,
-  capucha de paño, diadema rúnica, corona, casco vikingo, aro de laurel y sombrero de copa.
-- **Bastón**: seis piezas (madera, cristal, fuego, hielo, raíces, oscuro) con asta, puño de cuero
-  y engarce; la gema brilla con el color mágico. Se cuelga de `Hand_L`.
+  del hueso `Head`. Hay doce siluetas: archimago, caminante, casco de cuero, capucha de cuero,
+  capucha de paño, diadema rúnica, corona, casco vikingo, aro de laurel, sombrero de copa,
+  casco de cuero con orejeras y capucha de piel.
+- **Bastón**: nueve piezas (madera, cristal, fuego, hielo, raíces, oscuro, espiral, media luna y
+  sol) con asta, puño de cuero y engarce; la gema brilla con el color mágico. Se cuelga de
+  `Hand_L`.
 - **Puño cerrado**: como el rig solo tiene un hueso para los cuatro dedos, la mano abierta se
   oculta y se modela un puño aparte (`src/three/fist.js`) con dedos envolventes y pulgar. El
   bastón se coloca respecto a la muñeca, no a la orientación de la mano.

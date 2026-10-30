@@ -218,6 +218,8 @@ export const HATS = [
   { id: 'viking', name: 'Casco vikingo' },
   { id: 'laurel', name: 'Aro de laurel' },
   { id: 'top', name: 'Sombrero de copa' },
+  { id: 'earflap', name: 'Casco de cuero con orejeras' },
+  { id: 'fur', name: 'Capucha de piel' },
 ];
 
 export const STAVES = [
@@ -227,6 +229,9 @@ export const STAVES = [
   { id: 'ice', name: 'Bastón de hielo' },
   { id: 'roots', name: 'Bastón de raíces' },
   { id: 'dark', name: 'Bastón oscuro' },
+  { id: 'spiral', name: 'Bastón de espiral' },
+  { id: 'moon', name: 'Bastón de media luna' },
+  { id: 'sun', name: 'Bastón de sol' },
 ];
 
 export const ROBE_COLORS = [
