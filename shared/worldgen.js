@@ -402,7 +402,11 @@ export function createWorld(seed) {
         for (const p of list) {
           const dx = x - p.x;
           const dz = z - p.z;
-          const rr = radius + p.r;
+          // El radio de colisión es el del combate, bastante mayor que el cuerpo
+          // del mago: usado entero, cada árbol y cada roca dejaba un cerco
+          // invisible de varios metros que obligaba a rodear. Se usa el núcleo
+          // del cuerpo para poder pasar entre troncos sin atravesarlos.
+          const rr = radius * 0.62 + p.r;
           if (dx * dx + dz * dz < rr * rr) return true;
         }
       }
@@ -412,7 +416,9 @@ export function createWorld(seed) {
 
   function canStand(x, z, radius = 2) {
     if (terrainBlocked(x, z)) return false;
-    const r = radius * 0.72;
+    // Muestreo del borde del cuerpo: con 0,72 el mago se quedaba a más de un
+    // metro del agua o del risco y esos huecos se notaban como paredes.
+    const r = radius * 0.55;
     if (terrainBlocked(x + r, z) || terrainBlocked(x - r, z) || terrainBlocked(x, z + r) || terrainBlocked(x, z - r)) {
       return false;
     }
@@ -432,7 +438,7 @@ export function createWorld(seed) {
   // transición orilla-agua no deja huecos por los que colarse.
   function canSwim(x, z, radius = 2) {
     if (!inBounds(x, z)) return false;
-    const r = radius * 0.72;
+    const r = radius * 0.55;
     if (depthAt(x, z) < 0.14) return false;
     if (
       depthAt(x + r, z) < 0.14 ||
@@ -449,7 +455,7 @@ export function createWorld(seed) {
   // que la orilla no sea un muro invisible.
   function canWade(x, z, radius = 2) {
     if (!inBounds(x, z)) return false;
-    const r = radius * 0.72;
+    const r = radius * 0.55;
     const wadeable = (d) => d > -1.7 && d < 1.5;
     if (!wadeable(depthAt(x, z))) return false;
     if (

@@ -24,6 +24,21 @@ export function moveWithCollision(world, x, z, dx, dz, radius) {
   if (canTraverse(world, nx, nz, radius)) return { x: nx, z: nz };
   if (dx !== 0 && canTraverse(world, x + dx, z, radius)) return { x: x + dx, z };
   if (dz !== 0 && canTraverse(world, x, z + dz, radius)) return { x, z: z + dz };
+  // Deslizar por el obstáculo: si el paso recto y los dos ejes fallan, se
+  // prueban giros cortos hacia los lados. Sin esto el mago se quedaba clavado
+  // contra troncos, rocas y esquinas y había que rodear a mano.
+  const len = Math.hypot(dx, dz);
+  if (len > 0.0001) {
+    const ux = dx / len;
+    const uz = dz / len;
+    for (const angle of [0.45, -0.45, 0.9, -0.9]) {
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const rx = (ux * cos - uz * sin) * len;
+      const rz = (ux * sin + uz * cos) * len;
+      if (canTraverse(world, x + rx, z + rz, radius)) return { x: x + rx, z: z + rz };
+    }
+  }
   return { x, z };
 }
 
