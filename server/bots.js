@@ -21,8 +21,9 @@ const BOT_THINK_MAX = 0.76;
 const BOT_CAST_CD_MIN = 2.1;
 const BOT_CAST_CD_MAX = 3.4;
 const BOT_COMBO_CHANCE = 0.06;
-const BOT_AIM_LEAD = 0.18;
-const BOT_AIM_JITTER = 58;
+const BOT_AIM_LEAD = 0.12;
+const BOT_MISS_CHANCE = 0.34;
+const BOT_AIM_JITTER = 8;
 
 function rotated(ux, uz, angle) {
   const cos = Math.cos(angle);
@@ -235,6 +236,26 @@ function predictedAim(bot, target, jitter) {
   };
 }
 
+// Error de puntería independiente del proyectil. En un tercio de los casteos
+// el punto cae deliberadamente fuera del radio del área; el resto conserva una
+// dispersión menor. Sin esto, una zona de 150 unidades absorbía cualquier
+// desvío y los bots parecían tener aimbot.
+function aimError(area, distance) {
+  const base = Math.max(28, Number(area) || 0) + Math.min(70, distance * 0.12);
+  const miss = Math.random() < BOT_MISS_CHANCE;
+  const spread = base * (miss ? 1.1 + Math.random() * 0.9 : 0.08 + Math.random() * 0.18);
+  const angle = Math.random() * Math.PI * 2;
+  return { x: Math.cos(angle) * spread, z: Math.sin(angle) * spread };
+}
+
+function abilityArea(ability) {
+  const fx = ability?.fx || {};
+  if (Number.isFinite(fx.r)) return fx.r;
+  if (Number.isFinite(fx.radius)) return fx.radius;
+  if (Number.isFinite(fx.width)) return fx.width * 0.28;
+  return 0;
+}
+
 function tryCast(game, bot, target) {
   const ai = bot.ai;
   if (ai.castCd > 0) return;
@@ -276,14 +297,19 @@ function tryCast(game, bot, target) {
   });
 
   const choice = options[0];
-  const jitter = BOT_AIM_JITTER + distance * 0.16;
-  const aim = predictedAim(bot, target, jitter);
+  const aim = predictedAim(bot, target, BOT_AIM_JITTER);
+  const error = aimError(abilityArea(choice.ability), distance);
+  aim.x += error.x;
+  aim.z += error.z;
   ai.castCd = BOT_CAST_CD_MIN + Math.random() * (BOT_CAST_CD_MAX - BOT_CAST_CD_MIN);
   game.castAbility(bot, choice.slot, choice.index, aim.x, aim.z);
 
   const hasBoth = bot.slots[0] && bot.slots[1];
   if (hasBoth && bot.comboCd <= 0 && bot.mana >= 35 && Math.random() < BOT_COMBO_CHANCE) {
-    const comboAim = predictedAim(bot, target, 55);
+    const comboAim = predictedAim(bot, target, BOT_AIM_JITTER);
+    const comboError = aimError(90, distance);
+    comboAim.x += comboError.x;
+    comboAim.z += comboError.z;
     game.castCombo(bot, comboAim.x, comboAim.z);
   }
 }
