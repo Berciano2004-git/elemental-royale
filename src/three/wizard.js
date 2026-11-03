@@ -656,6 +656,11 @@ function loadAsset() {
 
 const CLIPS = ['idle', 'walk', 'run', 'start', 'stop', 'cast', 'hit', 'death'];
 const ONE_SHOT = new Set(['start', 'stop', 'cast', 'hit', 'death']);
+// Duración del gesto de lanzamiento. Se usa para repartir la recogida, el
+// impulso y la recuperación sin reiniciar el clip cuando llega la confirmación
+// del servidor.
+const CAST_DURATION = 1.1;
+const HIT_DURATION = 0.45;
 const tempEuler = new THREE.Euler();
 
 // Alarga un hueso sobre el eje en el que nace su hijo, sin engordarlo. Las
@@ -1915,6 +1920,9 @@ export function createWizard(look) {
     });
 
   let castTimer = 0;
+  // Ventana en la que el evento del servidor se considera el eco del casteo
+  // que el cliente ya anticipó. Un casteo nuevo del jugador la reinicia.
+  let castConfirm = 0;
   let hitTimer = 0;
   let startTimer = 0;
   let stopTimer = 0;
@@ -2042,6 +2050,13 @@ export function createWizard(look) {
     const w = strideW * amp;
     if (w <= 0.001) return;
     const p = stepPhase * Math.PI * 2;
+    // Al esprintar el centro de gravedad se adelanta: el torso se inclina y el
+    // cuello compensa para no perder la mirada al frente.
+    if (running) {
+      bones.Spine?.rotateX(-0.08 * w);
+      bones.Chest?.rotateX(-0.05 * w);
+      bones.Neck?.rotateX(0.05 * w);
+    }
     // La cadera baja en el apoyo y sube al pasar el pie; sin esto el mago
     // flota por el mapa con las piernas moviéndose debajo.
     const ground = 0.5 + 0.5 * Math.cos(p * 2);
@@ -2165,6 +2180,52 @@ export function createWizard(look) {
     if (clothAmt) bones.Hips?.rotateZ(Math.sin(time * gait + 0.4) * clothAmt);
   }
 
+  // Fases del lanzamiento sobre la pose del clip: recogida, golpe y vuelta.
+  // El clip ya mueve el brazo; esta capa añade el peso del torso, el contragolpe
+  // de la cabeza y la mano libre, que es lo que separa un gesto de un maniquí.
+  function applyCastPose() {
+    const amp = adminFlag('anim.secondary', true) ? adminValue('anim.castBody', 1) : 0;
+    if (amp <= 0.001 || castTimer <= 0) return;
+    const p = 1 - Math.min(1, castTimer / CAST_DURATION);
+    const wind = Math.min(1, p / 0.3);
+    const snap = Math.min(1, Math.max(0, (p - 0.3) / 0.12));
+    const settle = Math.min(1, Math.max(0, (p - 0.42) / 0.5));
+    const windAmt = Math.sin((wind * Math.PI) / 2) * (1 - snap);
+    const snapAmt = Math.sin((snap * Math.PI) / 2) * (1 - settle);
+    const w = amp;
+    bones.Spine?.rotateY(-0.16 * windAmt * w + 0.12 * snapAmt * w);
+    bones.Chest?.rotateY(-0.1 * windAmt * w + 0.08 * snapAmt * w);
+    bones.Spine?.rotateX(0.1 * windAmt * w - 0.14 * snapAmt * w);
+    bones.Chest?.rotateX(0.06 * windAmt * w - 0.08 * snapAmt * w);
+    bones.Head?.rotateY(0.06 * windAmt * w - 0.04 * snapAmt * w);
+    // El brazo del bastón sube al cargar y acompaña el impulso al soltar.
+    bones.UpperArm_L?.rotateX(-0.34 * windAmt * w + 0.42 * snapAmt * w);
+    bones.UpperArm_L?.rotateZ(0.12 * windAmt * w - 0.1 * snapAmt * w);
+    bones.Forearm_L?.rotateX(-0.18 * windAmt * w + 0.26 * snapAmt * w);
+    // La mano libre apunta al objetivo y frena el retroceso.
+    bones.UpperArm_R?.rotateX(-0.2 * windAmt * w + 0.3 * snapAmt * w);
+    bones.UpperArm_R?.rotateZ(-0.08 * windAmt * w + 0.12 * snapAmt * w);
+    bones.Forearm_R?.rotateX(-0.16 * windAmt * w);
+  }
+
+  // Reacción al daño: el pecho se echa atrás, la cabeza rompe la línea y los
+  // brazos pierden la pose de reposo. Se apaga en medio segundo para que una
+  // ráfaga no deje al mago doblado de forma permanente.
+  function applyHitPose() {
+    const amp = adminFlag('anim.secondary', true) ? adminValue('anim.hitBody', 1) : 0;
+    if (amp <= 0.001 || hitTimer <= 0) return;
+    const p = 1 - Math.min(1, hitTimer / HIT_DURATION);
+    const snap = Math.sin(Math.min(1, p * 2.4) * (Math.PI / 2));
+    const fade = Math.max(0, 1 - p * 1.55);
+    const w = amp * snap * fade;
+    bones.Spine?.rotateX(0.22 * w);
+    bones.Chest?.rotateX(0.12 * w);
+    bones.Head?.rotateX(-0.24 * w);
+    bones.UpperArm_L?.rotateX(0.18 * w);
+    bones.UpperArm_R?.rotateX(0.2 * w);
+    bones.Hips?.rotateZ(0.05 * w);
+  }
+
   const api = {
     group,
     rig,
@@ -2199,6 +2260,9 @@ export function createWizard(look) {
         duration,
         paused: adminFlag('anim.paused', false),
       };
+    },
+    get castPhase() {
+      return castTimer > 0 ? 1 - Math.min(1, castTimer / CAST_DURATION) : 0;
     },
     get height() {
       return 4.5 * group.scale.y + rig.position.y;
@@ -2249,12 +2313,16 @@ export function createWizard(look) {
       glowMat.color.set(cssColor);
       haloMat.color.set(cssColor);
     },
-    flashCast() {
-      // Debe cubrir el clip completo (1,1 s) o el gesto se corta a la mitad.
-      castTimer = 1.1;
+    flashCast(fromServer = false) {
+      // El cliente arranca el gesto al pulsar y el servidor confirma poco
+      // después. Ese eco no debe reiniciar el clip; un segundo casteo real sí.
+      if (fromServer && castConfirm > 0) return;
+      castTimer = CAST_DURATION;
+      castConfirm = 0.45;
     },
     flashHit() {
-      hitTimer = 0.45;
+      if (hitTimer > HIT_DURATION * 0.55) return;
+      hitTimer = HIT_DURATION;
     },
     setDead() {
       dead = true;
@@ -2272,6 +2340,7 @@ export function createWizard(look) {
     },
     update(dt, time, moving, running = false, swimming = false, motion = null) {
       castTimer = Math.max(0, castTimer - dt);
+      castConfirm = Math.max(0, castConfirm - dt);
       hitTimer = Math.max(0, hitTimer - dt);
       startTimer = Math.max(0, startTimer - dt);
       stopTimer = Math.max(0, stopTimer - dt);
@@ -2344,16 +2413,25 @@ export function createWizard(look) {
           applyAirPose(airBlend, airRise, crouch);
           applySecondary(time, moving, running);
         }
+        // Estas capas van después del mixer y antes de la mirada: así el gesto
+        // de casteo y el golpe se suman a la pose sin acumularse entre frames.
+        if (castTimer > 0) applyCastPose();
+        if (hitTimer > 0) applyHitPose();
         updateGaze(dt, moving);
       }
 
       const access = adminFlag('anim.secondary', true) ? adminValue('anim.accessory', 1) : 0;
+      // La carga del hechizo eleva el bastón y lo devuelve al soltar; el brillo
+      // del orbe sube con la misma curva para que el gesto tenga una lectura
+      // clara desde la cámara de juego.
+      const castT = castTimer > 0 ? 1 - Math.min(1, castTimer / CAST_DURATION) : 0;
+      const castPulse = castT > 0 ? Math.sin(Math.min(1, castT / 0.45) * Math.PI) : 0;
       if (staffReady) {
         // El bastón se mece lo justo; el puño va con él, así que el agarre no
         // se rompe nunca.
         const sway = (Math.sin(time * 1.15) * 0.012 + Math.sin(time * 0.47 + 1.3) * 0.006) * access;
         const bob = Math.sin(time * 1.55 + 0.4) * 0.009 * access;
-        placeStaff(sway, bob);
+        placeStaff(sway + castPulse * 0.018, bob + castPulse * 0.14);
       }
 
       if (hatPivot.parent && !dead) {
@@ -2362,12 +2440,13 @@ export function createWizard(look) {
 
       if (!dead) {
         const magicGlow = adminValue('look.magicGlow', 1);
-        glow.scale.setScalar(glowBase * (1 + Math.sin(time * 3) * 0.05) * magicGlow);
-        glow.material.opacity = Math.min(1, 0.42 * magicGlow);
-        halo.scale.setScalar(haloBase * (1 + Math.sin(time * 1.7 + 0.8) * 0.05) * magicGlow);
-        halo.material.opacity = 0.09 * magicGlow;
-        orbMat.emissiveIntensity = 0.38 * magicGlow;
-        orb.rotation.y = time * 0.9;
+        const charge = castPulse * Math.max(0.4, magicGlow);
+        glow.scale.setScalar(glowBase * (1 + Math.sin(time * 3) * 0.05) * magicGlow * (1 + charge * 0.55));
+        glow.material.opacity = Math.min(1, (0.42 + charge * 0.34) * magicGlow);
+        halo.scale.setScalar(haloBase * (1 + Math.sin(time * 1.7 + 0.8) * 0.05) * magicGlow * (1 + charge * 0.5));
+        halo.material.opacity = Math.min(1, (0.09 + charge * 0.12) * magicGlow);
+        orbMat.emissiveIntensity = 0.38 * magicGlow + charge * 1.5;
+        orb.rotation.y = time * (0.9 + charge * 2.4);
         orb.rotation.x = Math.sin(time * 0.7) * 0.06;
       }
     },

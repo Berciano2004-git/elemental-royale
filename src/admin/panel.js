@@ -854,6 +854,9 @@ export function createAdminPanel(adapter) {
           ['state', 'Estado'],
           ['draws', 'Llamadas de dibujo'],
           ['tris', 'Triángulos'],
+          ['particles', 'Partículas activas'],
+          ['entities', 'Proyectiles / zonas'],
+          ['render', 'Resolución interna'],
         ];
         for (const [key, label] of fields) {
           const item = el('div');
@@ -888,6 +891,10 @@ export function createAdminPanel(adapter) {
     }
     if (values['debug.animState']) {
       overlayLines.push(`Clip ${info.clip || '—'} · ${((info.clipTime || 0) * 100).toFixed(0)}%${info.animPaused ? ' · pausa' : ''}`);
+      if (info.castPhase > 0) overlayLines.push(`Casteo ${(info.castPhase * 100).toFixed(0)}%`);
+    }
+    if (values['debug.fps'] && info.particles !== undefined) {
+      overlayLines.push(`Particulas ${info.particles} · Proyectiles ${info.projectiles ?? 0} · Zonas ${info.zones ?? 0}`);
     }
     if (overlayLines.length) {
       debugHud.textContent = '';
@@ -912,6 +919,9 @@ export function createAdminPanel(adapter) {
     setField('state', info.alive ? (info.frozen ? 'Congelado' : 'En pie') : 'Caído');
     setField('draws', String(info.draws ?? '—'));
     setField('tris', Number(info.triangles ?? 0).toLocaleString('es-ES'));
+    setField('particles', String(info.particles ?? '—'));
+    setField('entities', `${info.projectiles ?? 0} / ${info.zones ?? 0}`);
+    setField('render', `${info.quality || '—'} · ${Math.round((info.renderScale || 1) * 100)} %`);
     const note = panel.querySelector('#admin-server-note');
     if (note) {
       note.textContent = serverEnabled

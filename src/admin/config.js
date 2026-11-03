@@ -125,6 +125,11 @@ export const GROUPS = [
             unit: '×',
             hint: 'Recogida de piernas en el aire y flexión al aterrizar.',
           }),
+          num('anim.castBody', 'Peso corporal del lanzamiento', 1, 0, 2, 0.01, {
+            unit: '×',
+            hint: 'Recogida, impulso y contragolpe del torso durante el casteo.',
+          }),
+          num('anim.hitBody', 'Reacción al recibir daño', 1, 0, 2, 0.01, { unit: '×' }),
           toggle('anim.secondary', 'Activar movimiento secundario', true),
         ],
       },
@@ -162,6 +167,20 @@ export const GROUPS = [
           num('magic.vfx', 'Intensidad de partículas', 1, 0, 2, 0.01, { unit: '×' }),
           num('magic.manaCost', 'Coste de maná', 1, 0.1, 3, 0.01, { unit: '×', sync: true }),
           num('magic.manaRegen', 'Regeneración de maná', 1, 0.1, 4, 0.01, { unit: '×', sync: true }),
+        ],
+      },
+      {
+        id: 'magic-budget',
+        title: 'Presupuesto visual',
+        note: 'La calidad del menú fija un presupuesto base. Un valor 0 usa el del preset; los límites solo recortan adornos (humo, chispas y marcas), nunca proyectiles, zonas de daño ni avisos de combate.',
+        params: [
+          num('magic.maxParticles', 'Límite de partículas (0 = automático)', 0, 0, 1400, 20),
+          num('magic.smoke', 'Límite de jirones de humo (0 = automático)', 0, 0, 140, 2),
+          num('magic.decals', 'Límite de marcas en el suelo (0 = automático)', 0, 0, 40, 1),
+          num('magic.lightPower', 'Intensidad de las luces mágicas', 1, 0, 2, 0.01, { unit: '×' }),
+          toggle('graphics.adaptive', 'Calidad adaptativa según FPS', false, {
+            hint: 'Ajusta solo la resolución interna entre el 70 % y el 100 % si el ritmo baja de 50 FPS o supera 58 FPS.',
+          }),
         ],
       },
       {
@@ -585,7 +604,9 @@ export const PRESETS = [
       'magic.manaRegen': 3.5,
       'magic.projectileSpeed': 1.8,
       'magic.vfx': 1.8,
+      'magic.maxParticles': 1200,
       'anim.master': 1.4,
+      'anim.castBody': 1.35,
       'debug.colliders': true,
       'debug.speed': true,
       'debug.coords': true,

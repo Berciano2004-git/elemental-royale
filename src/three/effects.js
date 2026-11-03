@@ -83,15 +83,19 @@ const PROJECTILE_COLORS = {
 // ------------------------------------------------------------------ partículas
 
 class ParticlePool {
-  constructor(scene, max = 700) {
+  constructor(scene, max = 700, capacity = max) {
+    // `max` es el presupuesto activo (calidad/panel); `capacity` es el tamaño
+    // reservado de los buffers. Así subir la calidad no reasigna memoria en
+    // mitad de una partida.
     this.max = max;
+    this.capacity = Math.max(max, capacity);
     // Multiplicador de densidad de partículas (panel de administrador).
     this.intensity = 1;
     this.particles = [];
-    this.positions = new Float32Array(max * 3);
-    this.colors = new Float32Array(max * 3);
-    this.sizes = new Float32Array(max);
-    this.alphas = new Float32Array(max);
+    this.positions = new Float32Array(this.capacity * 3);
+    this.colors = new Float32Array(this.capacity * 3);
+    this.sizes = new Float32Array(this.capacity);
+    this.alphas = new Float32Array(this.capacity);
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
     geometry.setAttribute('aColor', new THREE.BufferAttribute(this.colors, 3).setUsage(THREE.DynamicDrawUsage));
@@ -209,18 +213,65 @@ class ParticlePool {
 
 // ------------------------------------------------------------------ utilidades
 
-const ringGeometry = new THREE.RingGeometry(0.9, 1.0, 56);
-ringGeometry.rotateX(-Math.PI / 2);
+// Frente de onda rasgado: el borde no es un círculo perfecto y el shader abre
+// huecos angulares, para que una explosión de viento no se lea como un icono
+// luminoso. Dos grosores comparten el mismo material.
+function makeRingGeometry(inner = 0.975) {
+  const geometry = new THREE.RingGeometry(inner, 1, 96, 1);
+  geometry.rotateX(-Math.PI / 2);
+  const position = geometry.attributes.position;
+  for (let i = 0; i < position.count; i++) {
+    const x = position.getX(i);
+    const z = position.getZ(i);
+    const angle = Math.atan2(z, x);
+    const wobble =
+      1 + Math.sin(angle * 7 + 1.2) * 0.032 + Math.sin(angle * 13 - 0.7) * 0.018;
+    position.setX(i, x * wobble);
+    position.setZ(i, z * wobble);
+  }
+  position.needsUpdate = true;
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+const ringGeometry = makeRingGeometry(0.975);
+const ringGeometryThick = makeRingGeometry(0.94);
 
-function makeRingMaterial(color, opacity = 0.9) {
-  return new THREE.MeshBasicMaterial({
-    color,
+function makeRingMaterial(color, opacity = 0.42) {
+  return new THREE.ShaderMaterial({
     transparent: true,
-    opacity,
-    side: THREE.DoubleSide,
     depthWrite: false,
+    side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending,
     toneMapped: false,
+    uniforms: {
+      uColor: { value: new THREE.Color(color) },
+      uOpacity: { value: opacity },
+      uSeed: { value: Math.random() * 12 },
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vLocal;
+      void main() {
+        vLocal = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      uniform float uSeed;
+      varying vec3 vLocal;
+      void main() {
+        float angle = atan(vLocal.z, vLocal.x);
+        float n1 = sin(angle * 9.0 + uSeed) * 0.5 + 0.5;
+        float n2 = sin(angle * 17.0 - uSeed * 1.7) * 0.5 + 0.5;
+        float gaps = smoothstep(0.08, 0.55, n1 * 0.62 + n2 * 0.38);
+        float radius = length(vLocal.xz);
+        float radial = smoothstep(0.94, 0.968, radius) * (1.0 - smoothstep(0.995, 1.045, radius));
+        float alpha = uOpacity * radial * (0.12 + 0.88 * gaps);
+        if (alpha < 0.008) discard;
+        gl_FragColor = vec4(uColor, alpha);
+      }
+    `,
   });
 }
 
@@ -407,7 +458,7 @@ export class EffectsView {
     this.world = world;
     this.group = new THREE.Group();
     scene.add(this.group);
-    this.particles = new ParticlePool(scene, 760);
+    this.particles = new ParticlePool(scene, 760, 1400);
     this.rings = [];
     this.flashes = [];
     this.projectiles = new Map();
@@ -419,6 +470,11 @@ export class EffectsView {
     this.decals = [];
     this.lights = [];
     this.lightCursor = 0;
+    // Presupuesto activo. La calidad y el panel lo ajustan sin recrear el pool.
+    this.maxPuffs = 70;
+    this.maxDecals = 18;
+    this.maxLights = 3;
+    this.lightPower = 1;
     // Presupuesto fijo: tres luces se reutilizan entre todos los hechizos.
     for (let i = 0; i < 3; i++) {
       const light = new THREE.PointLight(0xffffff, 0, 300, 2);
@@ -428,23 +484,67 @@ export class EffectsView {
     }
   }
 
+  // Ajusta el coste visual sin tocar la simulación ni la lectura del combate.
+  // Se recortan primero los adornos más antiguos; nunca se eliminan avisos de
+  // zona ni proyectiles.
+  setBudget({ particles, puffs, decals, lightPower } = {}) {
+    if (Number.isFinite(particles)) {
+      this.particles.max = Math.max(120, Math.min(this.particles.capacity, Math.round(particles)));
+      if (this.particles.particles.length > this.particles.max) {
+        this.particles.particles.splice(0, this.particles.particles.length - this.particles.max);
+      }
+    }
+    if (Number.isFinite(puffs)) {
+      this.maxPuffs = Math.max(0, Math.min(140, Math.round(puffs)));
+      while (this.puffs.length > this.maxPuffs) {
+        const old = this.puffs.shift();
+        this.group.remove(old.sprite);
+        old.sprite.material.dispose();
+      }
+    }
+    if (Number.isFinite(decals)) {
+      this.maxDecals = Math.max(0, Math.min(40, Math.round(decals)));
+      while (this.decals.length > this.maxDecals) {
+        const old = this.decals.shift();
+        this.group.remove(old.group);
+        old.group.traverse((node) => {
+          if (node.geometry) node.geometry.dispose();
+          if (node.material) node.material.dispose();
+        });
+      }
+    }
+    if (Number.isFinite(lightPower)) this.lightPower = Math.max(0, Math.min(2, lightPower));
+    if (this.lightPower <= 0.01) {
+      for (const slot of this.lights) {
+        slot.life = 0;
+        slot.light.visible = false;
+        slot.light.intensity = 0;
+      }
+    }
+  }
+
   flashLight(x, y, z, color, power = 70, life = 0.28) {
+    if (this.maxLights <= 0 || this.lightPower <= 0.01) return;
+    // Solo se consideran las luces dentro del presupuesto activo; las demás
+    // quedan apagadas y no cuestan fragmentos.
     let slot = this.lights[0];
-    for (const candidate of this.lights) {
+    for (let i = 0; i < this.maxLights; i++) {
+      const candidate = this.lights[i];
       if (candidate.life < slot.life) slot = candidate;
     }
     slot.light.position.set(x, y, z);
     slot.light.color.set(color);
     slot.light.distance = 260;
-    slot.power = power;
+    slot.power = power * this.lightPower;
     slot.max = life;
     slot.life = life;
-    slot.light.intensity = power;
+    slot.light.intensity = slot.power;
     slot.light.visible = true;
   }
 
   addPuff(x, y, z, color, size = 8, life = 1.2, options = {}) {
-    if (this.puffs.length >= 70) {
+    if (this.maxPuffs <= 0) return;
+    if (this.puffs.length >= this.maxPuffs) {
       const old = this.puffs.shift();
       this.group.remove(old.sprite);
       old.sprite.material.dispose();
@@ -465,6 +565,7 @@ export class EffectsView {
   }
 
   addScorch(x, z, radius, style = 'fire') {
+    if (this.maxDecals <= 0) return;
     const decal = groundDecal(style, radius, { opacity: 0.9 });
     const floor = this.ground(x, z) + 0.08;
     decal.position.set(x, floor, z);
@@ -473,7 +574,7 @@ export class EffectsView {
     });
     this.group.add(decal);
     this.decals.push({ group: decal, life: 9, maxLife: 9 });
-    if (this.decals.length > 18) {
+    if (this.decals.length > this.maxDecals) {
       const old = this.decals.shift();
       this.group.remove(old.group);
       old.group.traverse((node) => {
@@ -488,8 +589,17 @@ export class EffectsView {
   }
 
   addRing(x, z, color, maxRadius, life = 0.55, width = 1.0, y = null) {
-    const material = makeRingMaterial(color, 0.9);
-    const mesh = new THREE.Mesh(ringGeometry, material);
+    // No se acumulan frentes de onda: al llegar al límite se retira el más
+    // antiguo. Sin esto, varios lanzamientos de viento superpuestos lavaban la
+    // pantalla en blanco.
+    if (this.rings.length >= 24) {
+      const old = this.rings.shift();
+      this.group.remove(old.mesh);
+      old.material.dispose();
+    }
+    const material = makeRingMaterial(color, 0.42);
+    const geometry = width > 1.1 ? ringGeometryThick : ringGeometry;
+    const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(x, y == null ? this.ground(x, z) + 0.25 : y, z);
     mesh.scale.setScalar(2);
     this.group.add(mesh);
@@ -2080,7 +2190,7 @@ export class EffectsView {
       const t = 1 - Math.max(0, ring.life) / ring.maxLife;
       const scale = 2 + (ring.maxRadius - 2) * (1 - Math.pow(1 - t, 2));
       ring.mesh.scale.set(scale, 1, scale);
-      ring.material.opacity = (1 - t) * 0.8;
+      ring.material.uniforms.uOpacity.value = (1 - t) * 0.52;
       if (ring.life <= 0) {
         this.group.remove(ring.mesh);
         ring.material.dispose();

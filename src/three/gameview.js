@@ -21,6 +21,13 @@ export class GameView {
   constructor(canvas, quality = 'medium') {
     this.canvas = canvas;
     this.quality = quality;
+    // Resolución interna independiente del preset: la calidad adaptativa baja
+    // el coste de fragmentos sin cambiar geometría, efectos ni reglas.
+    this.basePixelRatio = 1.5;
+    this.renderScale = 1;
+    this.perfAccum = 0;
+    this.perfFrames = 0;
+    this.measuredFps = 60;
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.Fog(0xcfe7f2, 650, 1850);
     this.camera = new THREE.PerspectiveCamera(52, 1, 0.5, 4200);
@@ -93,8 +100,60 @@ export class GameView {
   setQuality(quality) {
     this.quality = quality;
     const ratio = quality === 'high' ? 2 : quality === 'low' ? 1 : 1.5;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, ratio));
+    this.basePixelRatio = Math.min(window.devicePixelRatio || 1, ratio);
+    this.renderer.setPixelRatio(this.basePixelRatio * this.renderScale);
     this.resize();
+    this.applyEffectBudget();
+  }
+
+  // Presupuesto de adornos por preset. Los proyectiles, las zonas de daño y
+  // los avisos del meteorito nunca se recortan: solo humo, chispas y marcas.
+  applyEffectBudget() {
+    if (!this.effects) return;
+    const preset = this.quality === 'low'
+      ? { particles: 360, puffs: 36, decals: 10 }
+      : this.quality === 'high'
+        ? { particles: 1100, puffs: 90, decals: 24 }
+        : { particles: 760, puffs: 70, decals: 18 };
+    const custom = (key, fallback) => {
+      const value = this.adminValue(key, 0);
+      return value > 0 ? value : fallback;
+    };
+    this.effects.setBudget({
+      particles: custom('magic.maxParticles', preset.particles),
+      puffs: custom('magic.smoke', preset.puffs),
+      decals: custom('magic.decals', preset.decals),
+      lightPower: this.adminValue('magic.lightPower', 1),
+    });
+  }
+
+  // Calidad adaptativa opcional: cada dos segundos se mide el ritmo real y se
+  // mueve la resolución interna entre el 70 % y el 100 %. No toca la densidad
+  // de partículas ni la distancia de las zonas, para que la información de
+  // combate siga siendo la misma en cualquier equipo.
+  adaptQuality(dt) {
+    if (!this.adminFlag('graphics.adaptive', false) || document.hidden) {
+      this.perfAccum = 0;
+      this.perfFrames = 0;
+      if (this.renderScale !== 1) {
+        this.renderScale = 1;
+        this.renderer.setPixelRatio(this.basePixelRatio);
+      }
+      return;
+    }
+    this.perfAccum += dt;
+    this.perfFrames++;
+    if (this.perfAccum < 2) return;
+    this.measuredFps = this.perfFrames / this.perfAccum;
+    this.perfAccum = 0;
+    this.perfFrames = 0;
+    let next = this.renderScale;
+    if (this.measuredFps < 50) next = Math.max(0.7, next - 0.1);
+    else if (this.measuredFps > 58) next = Math.min(1, next + 0.05);
+    if (Math.abs(next - this.renderScale) > 0.001) {
+      this.renderScale = next;
+      this.renderer.setPixelRatio(this.basePixelRatio * this.renderScale);
+    }
   }
 
   adminValue(key, fallback) {
@@ -140,6 +199,11 @@ export class GameView {
     if (this.effects) {
       this.effects.particles.intensity = this.adminValue('magic.vfx', 1);
       this.effects.projectileScale = this.adminValue('magic.projectileSize', 1);
+      this.applyEffectBudget();
+    }
+    if (!this.adminFlag('graphics.adaptive', false) && this.renderScale !== 1) {
+      this.renderScale = 1;
+      this.renderer.setPixelRatio(this.basePixelRatio);
     }
     const signature = [
       this.adminFlag('debug.skeleton', false),
@@ -189,6 +253,7 @@ export class GameView {
     this.effects = new EffectsView(this.scene, this.world);
     this.effects.particles.intensity = this.adminValue('magic.vfx', 1);
     this.effects.projectileScale = this.adminValue('magic.projectileSize', 1);
+    this.applyEffectBudget();
 
     const selfInfo = (data.players || []).find((p) => p.id === this.selfId);
     if (selfInfo) {
@@ -378,7 +443,11 @@ export class GameView {
         this.world.pickups.add(fx.p);
       } else if (fx.k === 'cast') {
         const state = this.states.get(fx.i);
-        if (state) state.model.flashCast();
+        if (state) state.model.flashCast(true);
+      } else if (fx.k === 'hit') {
+        // Todos los clientes ven la reacción del objetivo, no solo quien lanzó.
+        const target = this.states.get(fx.i);
+        if (target && target.alive) target.model.flashHit();
       }
     }
     this.effects.processFx(snap.fx || []);
@@ -482,6 +551,7 @@ export class GameView {
 
   update(dt, mouse) {
     this.time += dt;
+    this.adaptQuality(dt);
     this.camTurn = Math.max(0, this.camTurn - dt);
     if (!this.matchActive || !this.world) {
       this.render();
