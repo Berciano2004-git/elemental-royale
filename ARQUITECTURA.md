@@ -534,6 +534,10 @@ la partida.
   (frecuencias múltiplo de 2π), bamboleo del vértice, polvo girando en la base y escombros en
   órbita. La tormenta usa nube de cúpulas, lluvia en partículas y rayos (`spawnBolt`). Los
   discos de suelo llevan un degradado radial para no dejar contornos duros.
+- El muro de llamas y la ola usan shaders propios (`flameMaterial` y el de `wave`) con bordes
+  irregulares y desvanecidos laterales; el barro se dibuja con mezcla normal para verse opaco,
+  el vapor son sprites suaves y el meteorito lleva dos halos. Cada lanzamiento añade un anillo
+  y partículas con la gravedad propia de su elemento.
 - `processFx()` traduce eventos del servidor (`cast`, `boom`, `splash`, `hit`, `death`, `pickup`,
   `heal`, `combo`, `quake`…) a partículas y anillos.
 

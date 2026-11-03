@@ -179,17 +179,15 @@ function glowMaterial(color) {
   return material;
 }
 
-function wallMaterial(colorA, colorB) {
+// Cortina de fuego: lenguas que suben y se mecen, con el núcleo blanco abajo
+// y la punta roja arriba.
+function flameMaterial() {
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending,
-    uniforms: {
-      uTime: { value: 0 },
-      uColorA: { value: new THREE.Color(colorA) },
-      uColorB: { value: new THREE.Color(colorB) },
-    },
+    uniforms: { uTime: { value: 0 } },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
       void main() {
@@ -199,15 +197,26 @@ function wallMaterial(colorA, colorB) {
     `,
     fragmentShader: /* glsl */ `
       uniform float uTime;
-      uniform vec3 uColorA;
-      uniform vec3 uColorB;
       varying vec2 vUv;
       void main() {
-        float n = sin(vUv.x * 26.0 + uTime * 3.0) * 0.5 + 0.5;
-        float n2 = sin(vUv.x * 9.0 - uTime * 1.6 + vUv.y * 4.0) * 0.5 + 0.5;
-        float alpha = (0.35 + n * 0.4) * smoothstep(0.0, 0.12, vUv.y) * smoothstep(1.0, 0.5, vUv.y);
-        vec3 color = mix(uColorA, uColorB, n2);
-        gl_FragColor = vec4(color, alpha);
+        float x = vUv.x;
+        float h = vUv.y;
+        // Cada lengua se mece a su ritmo y sube por separado.
+        float sway = sin(x * 34.0 + sin(uTime * 1.3 + x * 12.0) * 2.4 + uTime * 1.1) * 0.5 + 0.5;
+        float rise = sin(h * 9.0 - uTime * 3.6 + sway * 3.2) * 0.5 + 0.5;
+        float tongue = pow(sway * 0.55 + rise * 0.45, 1.7);
+        float heat = (1.0 - h) * 1.15 + tongue * 0.45 - 0.28;
+        // Altura irregular: cada columna de fuego acaba a distinta altura y los
+        // extremos del muro se desvanecen en vez de cortarse en seco.
+        float edge = 0.78 + sin(x * 21.0 + uTime * 1.7) * 0.14 + sin(x * 47.0 - uTime * 2.3) * 0.07;
+        float side = smoothstep(0.0, 0.07, x) * smoothstep(1.0, 0.93, x);
+        float alpha = smoothstep(0.12, 0.62, heat) * smoothstep(edge, edge - 0.3, h) * side;
+        vec3 tip = vec3(0.72, 0.12, 0.03);
+        vec3 mid = vec3(1.0, 0.5, 0.12);
+        vec3 core = vec3(1.0, 0.95, 0.72);
+        vec3 color = mix(tip, mid, smoothstep(0.12, 0.6, heat));
+        color = mix(color, core, smoothstep(0.62, 0.95, heat));
+        gl_FragColor = vec4(color, alpha * 0.9);
       }
     `,
   });
@@ -382,9 +391,27 @@ export class EffectsView {
       const color = fx.c ? fx.c : elementColor(fx.el, 0xffffff);
       const y = fx.x !== undefined ? this.ground(fx.x, fx.z) : 0;
       switch (fx.k) {
-        case 'cast':
+        case 'cast': {
+          // Destello de lanzamiento con el carácter de cada elemento: el fuego
+          // sube, el agua salpica, el viento gira y la tierra se abre.
           this.particles.burst(fx.x, y, fx.z, color, 7, { speed: 3.5, up: 2.5, life: 0.5, size: 3.5 });
+          this.addRing(fx.x, fx.z, color, fx.el === 'earth' ? 46 : 34, 0.3);
+          const gravity = fx.el === 'fire' ? -3 : fx.el === 'water' ? 11 : fx.el === 'wind' ? -1 : 9;
+          const spread = fx.el === 'wind' ? 9 : 4.5;
+          for (let i = 0; i < 6; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            this.particles.emit(fx.x, y + 1.6, fx.z, color, {
+              vx: Math.cos(angle) * spread,
+              vz: Math.sin(angle) * spread,
+              vy: 2 + Math.random() * 3,
+              gravity,
+              drag: 0.9,
+              life: 0.55,
+              size: 3,
+            });
+          }
           break;
+        }
         case 'boom':
           this.addRing(fx.x, fx.z, color, fx.r || 60, 0.5);
           this.addFlash(fx.x, fx.z, color, fx.r || 60, 0.3);
@@ -404,6 +431,8 @@ export class EffectsView {
           this.addRing(fx.x, fx.z, 0xc08a4a, fx.r || 170, 0.85);
           this.addRing(fx.x, fx.z, 0xf3d08a, (fx.r || 170) * 0.7, 0.6);
           this.particles.burst(fx.x, y, fx.z, 0x8a6a44, 24, { speed: 14, up: 4, life: 1.0, size: 5, gravity: 14 });
+          // Lascas de piedra que saltan del suelo.
+          this.particles.burst(fx.x, y, fx.z, 0xd2a05f, 14, { speed: 20, up: 13, life: 0.9, size: 4, gravity: 24 });
           break;
         case 'splash':
           this.particles.burst(fx.x, y, fx.z, COLORS.water, 12, { speed: 7, up: 6, life: 0.7, size: 4.5 });
@@ -569,7 +598,7 @@ export class EffectsView {
       return mesh;
     };
 
-    const flatDisc = (radius, discColor, opacity = 0.5) => {
+    const flatDisc = (radius, discColor, opacity = 0.5, additive = true) => {
       const geometry = new THREE.CircleGeometry(1, 40);
       geometry.rotateX(-Math.PI / 2);
       const material = new THREE.MeshBasicMaterial({
@@ -578,7 +607,7 @@ export class EffectsView {
         transparent: true,
         opacity,
         depthWrite: false,
-        blending: THREE.AdditiveBlending,
+        blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
         toneMapped: false,
         side: THREE.DoubleSide,
       });
@@ -600,12 +629,23 @@ export class EffectsView {
       }
       case 'wall': {
         const width = zone.w || 155;
-        const material = wallMaterial(0xff3d12, 0xffc24d);
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, 7), material);
-        mesh.position.y = 3.6;
-        mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(zone.dx, 0, zone.dz));
-        add(mesh);
-        holder.shader = material;
+        // Dos cortinas superpuestas: la de delante más alta y una detrás más
+        // baja y desplazada, para que el muro tenga fondo.
+        holder.shaders = [];
+        holder.embers = 0;
+        const front = flameMaterial();
+        const frontMesh = new THREE.Mesh(new THREE.PlaneGeometry(width, 11), front);
+        frontMesh.position.y = 5.4;
+        frontMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(zone.dx, 0, zone.dz));
+        add(frontMesh);
+        holder.shaders.push(front);
+
+        const back = flameMaterial();
+        const backMesh = new THREE.Mesh(new THREE.PlaneGeometry(width, 8), back);
+        backMesh.position.set(-zone.dx * 3.5, 3.8, -zone.dz * 3.5);
+        backMesh.quaternion.copy(frontMesh.quaternion);
+        add(backMesh);
+        holder.shaders.push(back);
         break;
       }
       case 'wave': {
@@ -623,20 +663,28 @@ export class EffectsView {
             uniform float uTime;
             varying vec2 vUv;
             void main() {
-              float band = sin(vUv.y * 18.0 - uTime * 4.0 + sin(vUv.x * 20.0) * 2.0) * 0.5 + 0.5;
-              vec3 deep = vec3(0.06, 0.35, 0.55);
-              vec3 foam = vec3(0.72, 0.95, 1.0);
-              vec3 color = mix(deep, foam, pow(vUv.y, 2.2) * 0.8 + band * 0.18);
-              float alpha = 0.62 + band * 0.22;
+              float x = vUv.x;
+              float h = vUv.y;
+              // Perfil irregular de la cresta y espuma justo debajo de ella.
+              float crest = 0.8 + sin(x * 11.0 + uTime * 1.1) * 0.1 + sin(x * 31.0 - uTime * 2.2) * 0.05;
+              float band = sin(x * 16.0 + h * 7.0 - uTime * 4.0) * 0.5 + 0.5;
+              float foam = smoothstep(crest - 0.22, crest, h);
+              vec3 deep = vec3(0.04, 0.26, 0.46);
+              vec3 shallow = vec3(0.32, 0.78, 0.98);
+              vec3 color = mix(deep, shallow, h * 0.9 + band * 0.15);
+              color = mix(color, vec3(1.0), foam * 0.8 + band * 0.08);
+              float side = smoothstep(0.0, 0.08, x) * smoothstep(1.0, 0.92, x);
+              float alpha = (0.6 + band * 0.2) * smoothstep(crest, crest - 0.3, h) * side;
               gl_FragColor = vec4(color, alpha);
             }
           `,
         });
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, 9), material);
-        mesh.position.y = 4.2;
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, 12), material);
+        mesh.position.y = 5.6;
         mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(zone.dx, 0, zone.dz));
         add(mesh);
         holder.shader = material;
+        holder.spray = 0;
         flatDisc(width * 0.4, 0x7fe8ff, 0.2);
         break;
       }
@@ -703,34 +751,52 @@ export class EffectsView {
       }
       case 'meteor': {
         const material = new THREE.MeshBasicMaterial({ color: 0xff6a24, toneMapped: false });
-        const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(3.2, 1), material);
+        const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(5, 1), material);
         mesh.position.y = 70;
         group.add(mesh);
         holder.meteor = mesh;
-        const glow = new THREE.Sprite(glowMaterial(0xffb05a));
-        glow.scale.setScalar(24);
+        // Núcleo brillante más un halo amplio que tiñe el cielo.
+        const glow = new THREE.Sprite(glowMaterial(0xffd08a));
+        glow.scale.setScalar(52);
         mesh.add(glow);
+        const halo = new THREE.Sprite(glowMaterial(0xff5a1a));
+        halo.scale.setScalar(96);
+        mesh.add(halo);
         flatDisc(zone.r, 0xff5d22, 0.22);
         break;
       }
       case 'mud': {
-        flatDisc(zone.r, 0x6a4a2e, 0.5);
-        flatDisc(zone.r * 0.7, 0x8a6742, 0.3);
+        // Barro opaco: mezcla normal para que se vea húmedo y no como un brillo.
+        flatDisc(zone.r, 0x4a3320, 0.92, false);
+        flatDisc(zone.r * 0.74, 0x6d4f2f, 0.85, false);
+        flatDisc(zone.r * 0.42, 0x8a6a41, 0.7, false);
+        holder.bubbles = 0;
         break;
       }
       case 'steam': {
-        flatDisc(zone.r, 0xcfeaff, 0.12);
-        const material = new THREE.MeshBasicMaterial({
-          color: 0xe6f7ff,
-          transparent: true,
-          opacity: 0.08,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        });
-        const dome = new THREE.Mesh(new THREE.SphereGeometry(zone.r, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2), material);
-        group.add(dome);
-        holder.materials.push(material);
+        flatDisc(zone.r, 0xcfeaff, 0.1);
+        // El vapor son jirones sueltos, no una cúpula de cristal: sprites
+        // grandes y suaves repartidos por la zona.
+        holder.mists = [];
+        holder.mistT = 0;
+        for (let i = 0; i < 8; i++) {
+          const material = new THREE.SpriteMaterial({
+            map: makeGlowTexture(),
+            color: 0xe6f7ff,
+            transparent: true,
+            opacity: 0.18,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            toneMapped: false,
+          });
+          const sprite = new THREE.Sprite(material);
+          const angle = (i / 8) * Math.PI * 2;
+          const radius = zone.r * (0.25 + (i % 3) * 0.24);
+          sprite.position.set(Math.cos(angle) * radius, 6 + (i % 4) * 3.5, Math.sin(angle) * radius);
+          sprite.scale.setScalar(zone.r * (0.85 + (i % 2) * 0.3));
+          add(sprite);
+          holder.mists.push({ sprite, y: sprite.position.y, phase: i * 0.8 });
+        }
         break;
       }
       case 'sandstorm': {
@@ -828,11 +894,47 @@ export class EffectsView {
         holder.group.position.z = zone.z;
         holder.group.position.y = this.world.heightAt(zone.x, zone.z);
         if (holder.shader) holder.shader.uniforms.uTime.value += dt;
+        // Rociones en la cresta de la ola.
+        holder.spray = (holder.spray || 0) - dt;
+        if (holder.spray <= 0) {
+          holder.spray = 0.02;
+          const spread = (zone.w || 200) / 2;
+          const t = (Math.random() * 2 - 1) * spread;
+          const x = zone.x - zone.dz * t + zone.dx * 4;
+          const z = zone.z + zone.dx * t + zone.dz * 4;
+          this.particles.emit(x, this.ground(x, z) + 7 + Math.random() * 4, z, 0xbdf0ff, {
+            vx: zone.dx * (6 + Math.random() * 10),
+            vz: zone.dz * (6 + Math.random() * 10),
+            vy: 6 + Math.random() * 8,
+            gravity: 12,
+            drag: 0.2,
+            life: 0.8,
+            size: 3.2,
+          });
+        }
       } else if (zone.t === 'wall') {
-        holder.group.position.x = zone.x;
-        holder.group.position.z = zone.z;
-        holder.group.position.y = this.world.heightAt(zone.x, zone.z);
-        if (holder.shader) holder.shader.uniforms.uTime.value += dt;
+        holder.group.position.set(zone.x, this.world.heightAt(zone.x, zone.z), zone.z);
+        if (holder.shaders) {
+          for (const shader of holder.shaders) shader.uniforms.uTime.value += dt;
+        }
+        // Brasas que suben desde la base del muro.
+        holder.embers = (holder.embers || 0) - dt;
+        if (holder.embers <= 0) {
+          holder.embers = 0.02;
+          const spread = (zone.w || 155) / 2;
+          const t = (Math.random() * 2 - 1) * spread;
+          const x = zone.x - zone.dz * t;
+          const z = zone.z + zone.dx * t;
+          this.particles.emit(x, this.ground(x, z) + 0.4, z, Math.random() < 0.5 ? 0xffb44a : 0xff6a24, {
+            vx: (Math.random() - 0.5) * 4,
+            vy: 10 + Math.random() * 14,
+            vz: (Math.random() - 0.5) * 4,
+            gravity: -1.5,
+            drag: 0.4,
+            life: 1.1,
+            size: 3.4,
+          });
+        }
       } else if (zone.t === 'meteor') {
         holder.group.position.x = zone.x;
         holder.group.position.z = zone.z;
@@ -842,14 +944,24 @@ export class EffectsView {
           holder.meteor.position.y = 8 + delay * 90;
           holder.meteor.rotation.x += dt * 3;
           holder.meteor.rotation.y += dt * 2;
-          if (Math.random() < 0.5) {
-            this.particles.emit(zone.x, this.ground(zone.x, zone.z) + holder.meteor.position.y, zone.z, 0xffb05a, {
-              vx: (Math.random() - 0.5) * 3,
-              vy: 2,
-              vz: (Math.random() - 0.5) * 3,
-              life: 0.5,
-              size: 6,
-            });
+          // Rastro de fuego y humo del meteorito.
+          for (let i = 0; i < 3; i++) {
+            const fire = Math.random() < 0.65;
+            this.particles.emit(
+              zone.x + (Math.random() - 0.5) * 8,
+              this.ground(zone.x, zone.z) + holder.meteor.position.y + (Math.random() - 0.5) * 6,
+              zone.z + (Math.random() - 0.5) * 8,
+              fire ? (Math.random() < 0.5 ? 0xff6a24 : 0xffc46b) : 0x2b2118,
+              {
+                vx: (Math.random() - 0.5) * 5,
+                vy: 4 + Math.random() * 5,
+                vz: (Math.random() - 0.5) * 5,
+                life: fire ? 0.6 : 1.2,
+                size: fire ? 9 : 15,
+                gravity: fire ? -2 : -1,
+                drag: 1.2,
+              }
+            );
           }
         }
       } else if (zone.t === 'lava') {
@@ -920,6 +1032,13 @@ export class EffectsView {
           });
         }
       } else if (zone.t === 'steam') {
+        // Los jirones suben y bajan muy despacio.
+        if (holder.mists) {
+          holder.mistT = (holder.mistT || 0) + dt;
+          for (const mist of holder.mists) {
+            mist.sprite.position.y = mist.y + Math.sin(holder.mistT * 0.7 + mist.phase) * 2.5;
+          }
+        }
         if (Math.random() < dt * 22) {
           const angle = Math.random() * Math.PI * 2;
           const radius = Math.sqrt(Math.random()) * zone.r;
@@ -936,21 +1055,32 @@ export class EffectsView {
           });
         }
       } else if (zone.t === 'mud') {
-        if (Math.random() < dt * 4) {
-          this.particles.emit(
-            zone.x + (Math.random() - 0.5) * zone.r,
-            this.ground(zone.x, zone.z) + 0.3,
-            zone.z + (Math.random() - 0.5) * zone.r,
-            0x8a6742,
-            { vx: 0, vy: 1, vz: 0, life: 0.5, size: 3 }
-          );
+        // Burbujas que se hinchan y estallan despacio.
+        holder.bubbles = (holder.bubbles || 0) - dt;
+        if (holder.bubbles <= 0) {
+          holder.bubbles = 0.08;
+          const angle = Math.random() * Math.PI * 2;
+          const radius = Math.sqrt(Math.random()) * zone.r * 0.92;
+          const x = zone.x + Math.cos(angle) * radius;
+          const z = zone.z + Math.sin(angle) * radius;
+          this.particles.emit(x, this.ground(x, z) + 0.4, z, Math.random() < 0.4 ? 0xa8875a : 0x6f5231, {
+            vx: (Math.random() - 0.5) * 2,
+            vy: 2.6 + Math.random() * 2,
+            vz: (Math.random() - 0.5) * 2,
+            gravity: 5,
+            drag: 0.8,
+            life: 0.9,
+            size: 6.5,
+          });
         }
       }
       const lifeRatio = Math.max(0, Math.min(1, zone.life / Math.max(0.1, zone.max || 1)));
       const fade = Math.min(1, 0.35 + lifeRatio);
       groupOpacity(holder, fade);
       if (holder.shaders) {
-        for (const shader of holder.shaders) shader.uniforms.uFade.value = fade;
+        for (const shader of holder.shaders) {
+          if (shader.uniforms.uFade) shader.uniforms.uFade.value = fade;
+        }
       }
     }
     for (const [id, holder] of this.zones) {
