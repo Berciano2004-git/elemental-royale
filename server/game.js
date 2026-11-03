@@ -48,6 +48,11 @@ const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 // de la configuración del cliente.
 const BOT_DAMAGE_SCALE = 0.62;
 const BOT_SPEED_SCALE = 0.86;
+// Las zonas del jugador (lava, muros, campos, tornados, prisiones, geiseres,
+// meteoros, oleadas y súbditos) hacen un 30 % menos de daño. Las zonas de los
+// bots ya reciben BOT_DAMAGE_SCALE al golpear a un humano; entre bots se dejan
+// normales para que las rondas no queden en tablas.
+const ZONE_DAMAGE_SCALE = 0.7;
 
 const ADMIN_RANGES = {
   walkSpeed: [30, 220, PLAYER_SPEED],
@@ -799,6 +804,17 @@ export function createGame(wss, options = {}) {
     return from;
   }
 
+  // Punto único de creación de zonas: escala solo las propiedades de daño,
+  // de modo que ningún tipo de área se quede fuera del ajuste.
+  function addZone(zone) {
+    const owner = getPlayer(zone.owner);
+    const scale = owner?.bot ? 1 : ZONE_DAMAGE_SCALE;
+    if (Number.isFinite(zone.dmg)) zone.dmg *= scale;
+    if (Number.isFinite(zone.dps)) zone.dps *= scale;
+    state.zones.push(zone);
+    return zone;
+  }
+
   // Las zonas son la pieza común de casi todo el grimario: muros, olas,
   // remolinos, prisiones, campos, árboles y géiseres comparten la misma
   // entidad y el cliente elige la silueta por `style` y `type`.
@@ -837,7 +853,7 @@ export function createGame(wss, options = {}) {
           // velocidad y 91 de radio hacen falta algo más de un segundo, así
           // que la caída se escalona en vez de multiplicar por una fracción.
           const delay = (fx.delay || 0.6) + i * (fx.stagger ?? 0.45);
-          state.zones.push({
+          addZone({
             ...base,
             id: state.nextEntityId++,
             type: 'meteor',
@@ -855,7 +871,7 @@ export function createGame(wss, options = {}) {
         break;
       }
       case 'wall':
-        state.zones.push({
+        addZone({
           ...base,
           type: 'wall',
           width: (fx.width || 170) * scale,
@@ -863,7 +879,7 @@ export function createGame(wss, options = {}) {
         });
         break;
       case 'wave':
-        state.zones.push({
+        addZone({
           ...base,
           type: 'wave',
           x: p.x + aim.dx * 24,
@@ -879,7 +895,7 @@ export function createGame(wss, options = {}) {
         });
         break;
       case 'tornado':
-        state.zones.push({
+        addZone({
           ...base,
           type: 'tornado',
           pull: (fx.pull || 240) * tune.projSpeed,
@@ -889,7 +905,7 @@ export function createGame(wss, options = {}) {
         });
         break;
       case 'spikes':
-        state.zones.push({
+        addZone({
           ...base,
           type: 'spikes',
           delay: fx.delay || 0.35,
@@ -897,10 +913,10 @@ export function createGame(wss, options = {}) {
         });
         break;
       case 'prison':
-        state.zones.push({ ...base, type: 'prison', root: 0.4, dps: base.dps });
+        addZone({ ...base, type: 'prison', root: 0.4, dps: base.dps });
         break;
       case 'geyser':
-        state.zones.push({
+        addZone({
           ...base,
           type: 'geyser',
           delay: fx.delay || 0.35,
@@ -910,10 +926,10 @@ export function createGame(wss, options = {}) {
         });
         break;
       case 'tree':
-        state.zones.push({ ...base, type: 'tree', cover: 1, dps: 0 });
+        addZone({ ...base, type: 'tree', cover: 1, dps: 0 });
         break;
       case 'plasma':
-        state.zones.push({
+        addZone({
           ...base,
           type: 'plasma',
           delay: fx.delay || 0.5,
@@ -923,7 +939,7 @@ export function createGame(wss, options = {}) {
         });
         break;
       default:
-        state.zones.push({ ...base, type: fx.type || 'field' });
+        addZone({ ...base, type: fx.type || 'field' });
         break;
     }
   }
@@ -1060,7 +1076,7 @@ export function createGame(wss, options = {}) {
       }
       case 'summon': {
         const summonLife = (fx.life || 10) * duration;
-        state.zones.push({
+        addZone({
           id: state.nextEntityId++,
           type: 'summon',
           mob: fx.mob,
@@ -1138,7 +1154,7 @@ export function createGame(wss, options = {}) {
         break;
       case 'flamewall': {
         const dist = Math.max(80, aim.dist);
-        state.zones.push({
+        addZone({
           id: state.nextEntityId++,
           type: 'wall',
           style: 'fire',
@@ -1172,7 +1188,7 @@ export function createGame(wss, options = {}) {
         });
         break;
       case 'tsunami': {
-        state.zones.push({
+        addZone({
           id: state.nextEntityId++,
           type: 'wave',
           style: 'water',
@@ -1209,7 +1225,7 @@ export function createGame(wss, options = {}) {
         });
         break;
       case 'tornado':
-        state.zones.push({
+        addZone({
           id: state.nextEntityId++,
           type: 'tornado',
           style: 'wind',
@@ -1293,7 +1309,7 @@ export function createGame(wss, options = {}) {
     }
 
     const zone = (extra) => {
-      state.zones.push({
+      addZone({
         id: state.nextEntityId++,
         owner: p.id,
         dx: aim.dx,
@@ -1745,7 +1761,7 @@ export function createGame(wss, options = {}) {
           if (Math.hypot(p.x - pr.x, p.z - pr.z) <= pr.splash) applyDamage(p, pr.splashDmg, owner);
         }
         const zoneLife = 5 * tune.duration;
-        state.zones.push({
+        addZone({
           id: state.nextEntityId++,
           type: 'lava',
           style: 'fire',
@@ -1785,7 +1801,7 @@ export function createGame(wss, options = {}) {
           if (Math.hypot(p.x - pr.x, p.z - pr.z) <= pr.splash) applyDamage(p, pr.splashDmg, owner);
         }
         const zoneLife = 5 * tune.duration;
-        state.zones.push({
+        addZone({
           id: state.nextEntityId++, type: 'lava', style: 'fire', x: pr.x, z: pr.z,
           r: 34 * tune.projSize, life: zoneLife, maxLife: zoneLife, dps: 9 * tune.power, owner: pr.owner,
         });
@@ -1798,7 +1814,7 @@ export function createGame(wss, options = {}) {
           if (!p.alive || p.id === pr.owner || p === direct) continue;
           if (Math.hypot(p.x - pr.x, p.z - pr.z) <= pr.splash) applyDamage(p, pr.splashDmg, owner);
         }
-        state.zones.push({
+        addZone({
           id: state.nextEntityId++, type: 'lava', style: 'dark', x: pr.x, z: pr.z,
           r: 44, life: 5, maxLife: 5, dps: 10, owner: pr.owner,
         });
@@ -1812,7 +1828,7 @@ export function createGame(wss, options = {}) {
           applyDamage(direct, pr.dmg, owner);
           applyRoot(direct, 2.2);
         }
-        state.zones.push({
+        addZone({
           id: state.nextEntityId++, type: 'prison', style: 'water', x, z, r: 58,
           life: 2.4, maxLife: 2.4, root: 0.4, dps: 2, owner: pr.owner,
         });
@@ -1849,7 +1865,7 @@ export function createGame(wss, options = {}) {
             if (!p.alive || p.id === z.owner) continue;
             if (Math.hypot(p.x - z.x, p.z - z.z) <= z.r) applyDamage(p, z.dmg, owner);
           }
-          s.zones.push({
+          addZone({
             id: s.nextEntityId++,
             type: 'lava',
             style: 'fire',
