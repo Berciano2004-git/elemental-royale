@@ -53,6 +53,10 @@ const BOT_SPEED_SCALE = 0.86;
 // bots ya reciben BOT_DAMAGE_SCALE al golpear a un humano; entre bots se dejan
 // normales para que las rondas no queden en tablas.
 const ZONE_DAMAGE_SCALE = 0.7;
+// Los colosos son súbditos cuerpo a cuerpo: su golpe pega muchas veces por
+// ronda y no debe borrar a un mago. Se ajusta solo el daño del golpe; vida,
+// velocidad, duración y radio quedan igual.
+const SUMMON_DAMAGE_SCALE = { golem: 0.5, guardian: 0.55 };
 
 const ADMIN_RANGES = {
   walkSpeed: [30, 220, PLAYER_SPEED],
@@ -2025,7 +2029,8 @@ export function createGame(wss, options = {}) {
             z.z = res.z;
           } else if (z.strikeTimer <= 0 && z.dps > 0) {
             z.strikeTimer = 0.65;
-            applyDamage(target, z.dps, owner);
+            const summonScale = SUMMON_DAMAGE_SCALE[z.mob] || 1;
+            applyDamage(target, z.dps * summonScale, owner);
             applySlow(target, 0.8, 0.5);
             s.fx.push({ k: 'summonHit', x: r1(target.x), z: r1(target.z), style: z.style, mob: z.mob });
           }
