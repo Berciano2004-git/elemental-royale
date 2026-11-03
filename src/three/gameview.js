@@ -699,7 +699,7 @@ export class GameView {
       this.aimMarker.scale.setScalar(pulse);
     }
 
-    this.world.update(dt, time);
+    this.world.update(dt, time, this.camera);
     if (this.effects && snap) {
       this.effects.syncProjectiles(snap.projs || [], dt);
       this.effects.syncZones(snap.zones || [], dt);

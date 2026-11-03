@@ -119,6 +119,8 @@ Cada partida genera una isla distinta a partir de una semilla:
 - **Lugares especiales**: Arena Antigua, Torre Arcana, Aldea Olvidada, Ruinas del Sol,
   Volcán Dormido y Santuario Verde. Los poderes que aparecen a su alrededor son de mayor
   rareza (raro, épico o legendario).
+- **Cristales de poder** con el símbolo del elemento grabado dentro (llama, gota, espiral,
+  montaña y cruz de vida), así se reconoce el poder desde lejos.
 - **Tormenta arcana** en seis fases: daño creciente, círculo actual en morado y siguiente
   círculo marcado en el minimapa.
 

@@ -486,10 +486,10 @@ export class WorldView {
     return canvas;
   }
 
-  update(dt, time) {
+  update(dt, time, camera = null) {
     if (this.waterMaterial) this.waterMaterial.uniforms.uTime.value = time;
     if (this.stormMaterial) this.stormMaterial.uniforms.uTime.value = time;
-    if (this.pickups) this.pickups.update(time);
+    if (this.pickups) this.pickups.update(time, camera);
     const t = Math.min(1, dt * 3.2);
     this.storm.cx += (this.stormTarget.cx - this.storm.cx) * t;
     this.storm.cz += (this.stormTarget.cz - this.storm.cz) * t;
@@ -536,6 +536,107 @@ export class WorldView {
 const PICKUP_MAX = 220;
 const RARITY_SCALE = { common: 0.82, uncommon: 0.9, rare: 1.0, epic: 1.08, legendary: 1.2 };
 
+// Símbolos dibujados en lienzo: uno por elemento y otro para los cristales de
+// vida. Se dibujan en blanco con un contorno oscuro para que se lean sobre
+// cualquier color de cristal.
+const GLYPH_KEYS = ['fire', 'water', 'wind', 'earth', 'heal'];
+const glyphTextureCache = new Map();
+
+function glyphTexture(key) {
+  if (glyphTextureCache.has(key)) return glyphTextureCache.get(key);
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.translate(size / 2, size / 2);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+
+  const trace = () => {
+    ctx.beginPath();
+    switch (key) {
+      case 'water':
+        // Gota: punta arriba y base redonda.
+        ctx.moveTo(0, -46);
+        ctx.bezierCurveTo(24, -10, 36, 6, 36, 20);
+        ctx.arc(0, 20, 36, 0, Math.PI);
+        ctx.bezierCurveTo(-36, 6, -24, -10, 0, -46);
+        break;
+      case 'wind': {
+        // Espiral: la silueta de un remolino.
+        for (let i = 0; i <= 26; i++) {
+          const t = i / 26;
+          const angle = -1.9 + t * 5.2;
+          const radius = 5 + t * 33;
+          const x = Math.cos(angle) * radius;
+          const y = Math.sin(angle) * radius * 0.86;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        break;
+      }
+      case 'earth':
+        // Montaña de dos picos.
+        ctx.moveTo(-40, 28);
+        ctx.lineTo(-8, -20);
+        ctx.lineTo(2, -2);
+        ctx.lineTo(14, -34);
+        ctx.lineTo(40, 28);
+        ctx.closePath();
+        break;
+      case 'heal':
+        // Cruz de vida.
+        ctx.moveTo(-10, -34);
+        ctx.lineTo(10, -34);
+        ctx.lineTo(10, -10);
+        ctx.lineTo(34, -10);
+        ctx.lineTo(34, 10);
+        ctx.lineTo(10, 10);
+        ctx.lineTo(10, 34);
+        ctx.lineTo(-10, 34);
+        ctx.lineTo(-10, 10);
+        ctx.lineTo(-34, 10);
+        ctx.lineTo(-34, -10);
+        ctx.lineTo(-10, -10);
+        ctx.closePath();
+        break;
+      default:
+        // Llama con la punta curvada.
+        ctx.moveTo(0, -46);
+        ctx.bezierCurveTo(22, -14, 34, 8, 16, 30);
+        ctx.bezierCurveTo(6, 43, -14, 42, -22, 27);
+        ctx.bezierCurveTo(-34, 6, -12, -10, -5, -25);
+        ctx.bezierCurveTo(0, -14, 6, -12, 10, -22);
+        ctx.bezierCurveTo(13, -30, 6, -38, 0, -46);
+        break;
+    }
+  };
+
+  ctx.shadowColor = 'rgba(255,255,255,0.7)';
+  ctx.shadowBlur = 10;
+  trace();
+  if (key === 'wind') {
+    // La espiral es solo trazo: contorno ancho y línea blanca encima.
+    ctx.strokeStyle = 'rgba(9,14,28,0.72)';
+    ctx.lineWidth = 13;
+    ctx.stroke();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 7;
+    ctx.stroke();
+  } else {
+    ctx.strokeStyle = 'rgba(9,14,28,0.72)';
+    ctx.lineWidth = 11;
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  glyphTextureCache.set(key, texture);
+  return texture;
+}
+
 export class PickupView {
   constructor(world) {
     this.world = world;
@@ -544,20 +645,27 @@ export class PickupView {
     this.dummy = new THREE.Object3D();
     const geometry = new THREE.OctahedronGeometry(0.8, 0);
 
+    // El cristal es translúcido para que el símbolo se vea dentro.
     this.core = new THREE.InstancedMesh(
       geometry,
-      new THREE.MeshBasicMaterial({ toneMapped: false }),
+      new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0.8,
+        depthWrite: false,
+        toneMapped: false,
+      }),
       PICKUP_MAX
     );
     this.core.count = 0;
     this.core.frustumCulled = false;
+    this.core.renderOrder = 1;
     this.group.add(this.core);
 
     this.halo = new THREE.InstancedMesh(
       geometry,
       new THREE.MeshBasicMaterial({
         transparent: true,
-        opacity: 0.32,
+        opacity: 0.26,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         toneMapped: false,
@@ -566,7 +674,31 @@ export class PickupView {
     );
     this.halo.count = 0;
     this.halo.frustumCulled = false;
+    this.halo.renderOrder = 0;
     this.group.add(this.halo);
+
+    // Glifos: un plano por elemento que siempre mira a la cámara, así el
+    // símbolo se lee desde cualquier ángulo.
+    this.glyphs = new Map();
+    const glyphGeometry = new THREE.PlaneGeometry(1.5, 1.5);
+    for (const key of GLYPH_KEYS) {
+      const mesh = new THREE.InstancedMesh(
+        glyphGeometry,
+        new THREE.MeshBasicMaterial({
+          map: glyphTexture(key),
+          transparent: true,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          toneMapped: false,
+        }),
+        PICKUP_MAX
+      );
+      mesh.count = 0;
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 3;
+      this.glyphs.set(key, mesh);
+      this.group.add(mesh);
+    }
     this.order = [];
   }
 
@@ -609,9 +741,12 @@ export class PickupView {
     this.update(0);
   }
 
-  update(time) {
+  update(time, camera = null) {
     if (!this.order) return;
     const count = this.core.count;
+    const seen = { fire: 0, water: 0, wind: 0, earth: 0, heal: 0 };
+    for (const mesh of this.glyphs.values()) mesh.count = 0;
+    const view = camera ? camera.quaternion : null;
     for (let i = 0; i < count; i++) {
       const p = this.order[i];
       const scale = p.kind === 'heal' ? 0.8 : RARITY_SCALE[p.rarity] || 0.9;
@@ -625,15 +760,36 @@ export class PickupView {
       this.dummy.rotation.y = -time * 0.6 + i;
       this.dummy.updateMatrix();
       this.halo.setMatrixAt(i, this.dummy.matrix);
+
+      const key = p.kind === 'heal' ? 'heal' : ELEMENTS[p.element] ? p.element : 'fire';
+      const glyph = this.glyphs.get(key);
+      if (glyph && seen[key] < PICKUP_MAX) {
+        const index = seen[key]++;
+        glyph.count = index + 1;
+        this.dummy.position.set(p.x, y, p.z);
+        if (view) this.dummy.quaternion.copy(view);
+        else this.dummy.rotation.set(0, 0, 0);
+        this.dummy.scale.setScalar(scale * 1.02);
+        this.dummy.updateMatrix();
+        glyph.setMatrixAt(index, this.dummy.matrix);
+      }
     }
     this.core.instanceMatrix.needsUpdate = true;
     this.halo.instanceMatrix.needsUpdate = true;
+    for (const mesh of this.glyphs.values()) {
+      if (mesh.count > 0) mesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   dispose() {
     this.core.geometry.dispose();
     this.core.material.dispose();
     this.halo.material.dispose();
+    for (const mesh of this.glyphs.values()) {
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+    }
+    this.glyphs.clear();
   }
 }
 

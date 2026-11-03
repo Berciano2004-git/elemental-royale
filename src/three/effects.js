@@ -213,6 +213,123 @@ function wallMaterial(colorA, colorB) {
   });
 }
 
+// Textura de remolino: brazos espirales que, tintados y girando, hacen de
+// polvo levantado en la base del tornado.
+let swirlTextureCache = null;
+function swirlTexture() {
+  if (swirlTextureCache) return swirlTextureCache;
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.translate(size / 2, size / 2);
+  ctx.lineCap = 'round';
+  for (let arm = 0; arm < 6; arm++) {
+    ctx.beginPath();
+    for (let i = 0; i <= 60; i++) {
+      const t = i / 60;
+      const angle = (arm / 6) * Math.PI * 2 + t * 3.6;
+      const radius = 6 + t * 116;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 10;
+    ctx.stroke();
+  }
+  swirlTextureCache = new THREE.CanvasTexture(canvas);
+  return swirlTextureCache;
+}
+
+// Degradado radial para los discos de suelo: se apagan hacia el borde en vez
+// de dejar un contorno duro de «plato».
+let softDiscCache = null;
+function softDiscTexture() {
+  if (softDiscCache) return softDiscCache;
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  gradient.addColorStop(0, 'rgba(255,255,255,0.95)');
+  gradient.addColorStop(0.5, 'rgba(255,255,255,0.5)');
+  gradient.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  softDiscCache = new THREE.CanvasTexture(canvas);
+  return softDiscCache;
+}
+
+// Embudo: cilindro cónico que se retuerce desde la base y sube en vetas. Cada
+// capa gira a su propia velocidad para que el remolino no parezca un tubo.
+function funnelMaterial(color, opacity, speed) {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      uTime: { value: 0 },
+      uFade: { value: 1 },
+      uSpeed: { value: speed },
+      uRadius: { value: 40 },
+      uColor: { value: new THREE.Color(color) },
+      uOpacity: { value: opacity },
+    },
+    vertexShader: /* glsl */ `
+      uniform float uTime;
+      uniform float uSpeed;
+      uniform float uRadius;
+      varying vec2 vUv;
+      varying float vShade;
+      void main() {
+        vUv = uv;
+        vec3 p = position;
+        float h = uv.y;
+        // La parte alta se mece como una serpentina; la base queda clavada.
+        float wobble = sin(uTime * 1.15 + h * 3.4) * 0.5 + sin(uTime * 0.63 + h * 1.9) * 0.5;
+        p.x += wobble * uRadius * 0.11 * pow(h, 1.5);
+        p.z += cos(uTime * 0.92 + h * 2.7) * uRadius * 0.09 * pow(h, 1.5);
+        // Anillos de aire que suben por la pared del embudo.
+        float angle = atan(p.z, p.x);
+        float ripple = sin(angle * 5.0 + uTime * uSpeed * 1.6 + h * 14.0);
+        float swell = 1.0 + ripple * 0.04 * (1.0 - h * 0.35);
+        p.xz = p.xz * swell;
+        p.y += sin(angle * 3.0 + uTime * 5.0) * 1.6 * (1.0 - h);
+        vShade = ripple;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      uniform float uTime;
+      uniform float uOpacity;
+      uniform float uFade;
+      uniform float uSpeed;
+      varying vec2 vUv;
+      varying float vShade;
+      void main() {
+        float h = vUv.y;
+        // Vetas alargadas que trepan girando: polvo y agua en suspensión.
+        // Frecuencias múltiplo de 2π para que la costura de la costura del
+        // cilindro no se vea.
+        float swirl = vUv.x * 94.2478 + uTime * uSpeed * 2.4 + h * 9.0;
+        float streak = pow(sin(swirl) * 0.5 + 0.5, 2.4);
+        float fine = sin(vUv.x * 188.4956 - uTime * uSpeed * 5.5 + h * 46.0) * 0.5 + 0.5;
+        float density = streak * (0.5 + fine * 0.5) + vShade * 0.04;
+        float fade = smoothstep(0.0, 0.12, h) * smoothstep(1.0, 0.42, h);
+        float alpha = uOpacity * uFade * fade * (0.18 + density * 0.82);
+        vec3 color = mix(uColor, vec3(1.0), density * 0.4);
+        gl_FragColor = vec4(color, alpha);
+      }
+    `,
+  });
+}
+
 // ------------------------------------------------------------------ efectos
 
 export class EffectsView {
@@ -227,6 +344,7 @@ export class EffectsView {
     this.projectiles = new Map();
     this.zones = new Map();
     this.castGlows = [];
+    this.bolts = [];
     this.projectileScale = 1;
   }
 
@@ -418,12 +536,13 @@ export class EffectsView {
     const group = new THREE.Group();
     const color = elementColor(zone.s, 0xffffff);
     const y = this.ground(zone.x, zone.z);
-    const holder = { group, zone, color, y, particles: 0, materials: [], meshes: [] };
+    const holder = { group, zone, color, y, particles: 0, materials: [], geometries: [], meshes: [] };
 
     const add = (mesh) => {
       group.add(mesh);
       holder.meshes.push(mesh);
       if (mesh.material) holder.materials.push(mesh.material);
+      if (mesh.geometry) holder.geometries.push(mesh.geometry);
       return mesh;
     };
 
@@ -431,6 +550,7 @@ export class EffectsView {
       const geometry = new THREE.CircleGeometry(1, 40);
       geometry.rotateX(-Math.PI / 2);
       const material = new THREE.MeshBasicMaterial({
+        map: softDiscTexture(),
         color: discColor,
         transparent: true,
         opacity,
@@ -498,24 +618,64 @@ export class EffectsView {
         break;
       }
       case 'tornado': {
-        const styles = zone.s === 'fire' ? [0xff7a2e, 0xffc14d] : [0x9ef0d0, 0x64c9a7];
-        for (let i = 0; i < 3; i++) {
-          const material = new THREE.MeshBasicMaterial({
-            color: styles[i % 2],
+        const fire = zone.s === 'fire';
+        const inner = fire ? 0xff9142 : 0xd6fff2;
+        const outer = fire ? 0xff4d16 : 0x5fd7b6;
+        const pull = zone.r || 95;
+        const base = Math.max(7, pull * 0.24);
+        const top = Math.max(18, pull * 0.66);
+        const height = Math.max(64, pull * 1.4);
+
+        holder.shaders = [];
+        holder.base = base;
+        holder.fire = fire;
+        holder.debris = 0;
+        holder.spin = 0;
+
+        // Núcleo denso y estrecho, más una pared exterior ancha y difusa que
+        // gira en sentido contrario.
+        const layers = [
+          {
+            color: inner,
+            opacity: 0.62,
+            speed: 3.4,
+            geometry: new THREE.CylinderGeometry(top * 0.45, base * 0.62, height * 0.96, 48, 22, true),
+            y: (height * 0.96) / 2,
+          },
+          {
+            color: outer,
+            opacity: 0.22,
+            speed: -1.9,
+            geometry: new THREE.CylinderGeometry(top, base, height, 60, 26, true),
+            y: height / 2,
+          },
+        ];
+        for (const layer of layers) {
+          const material = funnelMaterial(layer.color, layer.opacity, layer.speed);
+          material.uniforms.uRadius.value = pull;
+          const mesh = new THREE.Mesh(layer.geometry, material);
+          mesh.position.y = layer.y;
+          add(mesh);
+          holder.shaders.push(material);
+        }
+
+        // Polvo levantado en la base, girando con el embudo.
+        const dust = new THREE.Mesh(
+          new THREE.CircleGeometry(base * 2.6, 32),
+          new THREE.MeshBasicMaterial({
+            map: swirlTexture(),
+            color: outer,
             transparent: true,
-            opacity: 0.16 + i * 0.05,
-            side: THREE.DoubleSide,
+            opacity: 0.55,
             blending: THREE.AdditiveBlending,
             depthWrite: false,
             toneMapped: false,
-          });
-          const geometry = new THREE.CylinderGeometry(2.4 + i * 1.2, 8 + i * 2.2, 15 + i * 3, 16, 1, true);
-          const mesh = new THREE.Mesh(geometry, material);
-          mesh.position.y = 7.5;
-          add(mesh);
-        }
-        flatDisc(zone.r * 1.5, styles[0], 0.16);
-        holder.spin = 0;
+          })
+        );
+        dust.rotation.x = -Math.PI / 2;
+        dust.position.y = 0.35;
+        add(dust);
+        holder.disc = dust;
         break;
       }
       case 'meteor': {
@@ -550,21 +710,48 @@ export class EffectsView {
         holder.materials.push(material);
         break;
       }
-      case 'sandstorm':
+      case 'sandstorm': {
+        flatDisc(zone.r, 0xd8b47a, 0.14);
+        // Pared baja de polvo en giro, más ancha abajo que arriba.
+        const material = funnelMaterial(0xe8c98a, 0.26, 1.5);
+        material.uniforms.uRadius.value = zone.r;
+        const wall = new THREE.Mesh(
+          new THREE.CylinderGeometry(zone.r * 0.98, zone.r * 0.66, 42, 40, 6, true),
+          material
+        );
+        wall.position.y = 21;
+        add(wall);
+        holder.shaders = [material];
+        holder.dirt = 0;
+        break;
+      }
       case 'storm': {
-        const stormColor = zone.t === 'storm' ? 0x9b7bff : 0xd8b47a;
-        flatDisc(zone.r, stormColor, 0.18);
-        const material = new THREE.MeshBasicMaterial({
-          color: stormColor,
-          transparent: true,
-          opacity: 0.09,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-        });
-        const cylinder = new THREE.Mesh(new THREE.CylinderGeometry(zone.r, zone.r, 26, 28, 1, true), material);
-        cylinder.position.y = 13;
-        add(cylinder);
+        flatDisc(zone.r, 0x9b7bff, 0.12);
+        // Techo de nube: dos cúpulas achatadas superpuestas. La lluvia son
+        // partículas, no una pared de geometría.
+        holder.clouds = [];
+        const cloudLayers = [
+          { r: zone.r * 1.25, y: 175, squash: 0.34, color: 0x241d44, opacity: 0.5 },
+          { r: zone.r * 0.85, y: 150, squash: 0.4, color: 0x332a5c, opacity: 0.45 },
+        ];
+        for (const layer of cloudLayers) {
+          const material = new THREE.MeshBasicMaterial({
+            color: layer.color,
+            transparent: true,
+            opacity: layer.opacity,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          });
+          const cloud = new THREE.Mesh(
+            new THREE.SphereGeometry(layer.r, 32, 16, 0, Math.PI * 2, 0, Math.PI * 0.6),
+            material
+          );
+          cloud.scale.set(1, layer.squash, 1);
+          cloud.position.y = layer.y;
+          add(cloud);
+          holder.clouds.push({ material, base: layer.opacity });
+        }
+        holder.strike = 0.35 + Math.random() * 0.9;
         break;
       }
       default: {
@@ -587,11 +774,32 @@ export class EffectsView {
       if (!holder) holder = this.createZone(zone);
       holder.zone = zone;
       if (zone.t === 'tornado') {
-        holder.spin = (holder.spin || 0) + dt * 2.4;
-        holder.group.rotation.y = holder.spin;
-        holder.group.position.x = zone.x;
-        holder.group.position.z = zone.z;
-        holder.group.position.y = this.world.heightAt(zone.x, zone.z);
+        holder.spin = (holder.spin || 0) + dt;
+        holder.group.position.set(zone.x, this.world.heightAt(zone.x, zone.z), zone.z);
+        if (holder.shaders) {
+          for (const shader of holder.shaders) shader.uniforms.uTime.value += dt;
+        }
+        if (holder.disc) holder.disc.rotation.z -= dt * 2.8;
+        // Escombros que orbitan la base y suben por el embudo.
+        holder.debris = (holder.debris || 0) - dt;
+        if (holder.debris <= 0) {
+          holder.debris = 0.03;
+          const angle = Math.random() * Math.PI * 2;
+          const radius = (holder.base || 12) * (0.5 + Math.random() * 0.8);
+          const x = zone.x + Math.cos(angle) * radius;
+          const z = zone.z + Math.sin(angle) * radius;
+          const y = this.ground(x, z) + Math.random() * 30;
+          const orbital = 34 + Math.random() * 22;
+          this.particles.emit(x, y, z, holder.fire ? (Math.random() < 0.6 ? 0xffb44a : 0xff5a1e) : 0xd8fff2, {
+            vx: -Math.sin(angle) * orbital,
+            vz: Math.cos(angle) * orbital,
+            vy: 14 + Math.random() * 22,
+            gravity: -2,
+            drag: 0.18,
+            life: 1.1,
+            size: holder.fire ? 5 : 3.6,
+          });
+        }
       } else if (zone.t === 'wave') {
         holder.group.position.x = zone.x;
         holder.group.position.z = zone.z;
@@ -631,17 +839,77 @@ export class EffectsView {
             { vx: 0, vy: 2 + Math.random() * 2, vz: 0, life: 0.6, size: 4 }
           );
         }
-      } else if (zone.t === 'storm' || zone.t === 'sandstorm' || zone.t === 'steam') {
-        if (Math.random() < dt * 16) {
+      } else if (zone.t === 'storm') {
+        // Rayos: cada descarga ilumina la nube y deja un destello en el suelo.
+        holder.strike = (holder.strike || 0.6) - dt;
+        if (holder.strike <= 0) {
+          holder.strike = 0.35 + Math.random() * 0.9;
+          const angle = Math.random() * Math.PI * 2;
+          const radius = Math.sqrt(Math.random()) * zone.r * 0.85;
+          this.spawnBolt(zone.x + Math.cos(angle) * radius, zone.z + Math.sin(angle) * radius);
+          if (holder.clouds) {
+            for (const cloud of holder.clouds) cloud.material.opacity = Math.min(0.9, cloud.base + 0.35);
+          }
+        }
+        if (holder.clouds) {
+          const settle = Math.min(1, dt * 5);
+          for (const cloud of holder.clouds) {
+            cloud.material.opacity += (cloud.base - cloud.material.opacity) * settle;
+          }
+        }
+        // Cortina de agua: gotas largas cayendo en diagonal.
+        if (Math.random() < dt * 150) {
+          for (let i = 0; i < 3; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = Math.sqrt(Math.random()) * zone.r;
+            const x = zone.x + Math.cos(angle) * radius;
+            const z = zone.z + Math.sin(angle) * radius;
+            this.particles.emit(x, this.ground(x, z) + 130 + Math.random() * 45, z, 0xbfb4ff, {
+              vx: 7,
+              vy: -165,
+              vz: 4,
+              gravity: 0,
+              drag: 0,
+              life: 1.0,
+              size: 2.2,
+            });
+          }
+        }
+      } else if (zone.t === 'sandstorm') {
+        if (holder.shaders) {
+          for (const shader of holder.shaders) shader.uniforms.uTime.value += dt;
+        }
+        holder.dirt = (holder.dirt || 0) - dt;
+        if (holder.dirt <= 0) {
+          holder.dirt = 0.025;
           const angle = Math.random() * Math.PI * 2;
           const radius = Math.sqrt(Math.random()) * zone.r;
-          const c = zone.t === 'storm' ? 0xc8b0ff : zone.t === 'steam' ? 0xffffff : 0xe8cf9a;
-          this.particles.emit(zone.x + Math.cos(angle) * radius, this.ground(zone.x, zone.z) + 1 + Math.random() * 4, zone.z + Math.sin(angle) * radius, c, {
-            vx: 2 + Math.random() * 3,
-            vy: 1.5,
-            vz: (Math.random() - 0.5) * 3,
-            life: 0.7,
-            size: 4,
+          const x = zone.x + Math.cos(angle) * radius;
+          const z = zone.z + Math.sin(angle) * radius;
+          this.particles.emit(x, this.ground(x, z) + 1 + Math.random() * 26, z, 0xe8cf9a, {
+            vx: -Math.sin(angle) * 30,
+            vz: Math.cos(angle) * 30,
+            vy: 6 + Math.random() * 8,
+            gravity: 1,
+            drag: 0.3,
+            life: 1.0,
+            size: 4.5,
+          });
+        }
+      } else if (zone.t === 'steam') {
+        if (Math.random() < dt * 22) {
+          const angle = Math.random() * Math.PI * 2;
+          const radius = Math.sqrt(Math.random()) * zone.r;
+          const x = zone.x + Math.cos(angle) * radius;
+          const z = zone.z + Math.sin(angle) * radius;
+          this.particles.emit(x, this.ground(x, z) + 1 + Math.random() * 4, z, 0xffffff, {
+            vx: 3 + Math.random() * 4,
+            vy: 3 + Math.random() * 4,
+            vz: (Math.random() - 0.5) * 4,
+            gravity: -3,
+            drag: 0.6,
+            life: 1.4,
+            size: 6,
           });
         }
       } else if (zone.t === 'mud') {
@@ -656,18 +924,66 @@ export class EffectsView {
         }
       }
       const lifeRatio = Math.max(0, Math.min(1, zone.life / Math.max(0.1, zone.max || 1)));
-      groupOpacity(holder, Math.min(1, 0.35 + lifeRatio));
+      const fade = Math.min(1, 0.35 + lifeRatio);
+      groupOpacity(holder, fade);
+      if (holder.shaders) {
+        for (const shader of holder.shaders) shader.uniforms.uFade.value = fade;
+      }
     }
     for (const [id, holder] of this.zones) {
       if (seen.has(id)) continue;
       this.group.remove(holder.group);
       holder.materials.forEach((m) => m.dispose());
+      if (holder.geometries) holder.geometries.forEach((g) => g.dispose());
       this.zones.delete(id);
     }
   }
 
+  // Rayo: línea quebrada desde la nube hasta el suelo, con destello y chispas.
+  spawnBolt(x, z) {
+    const groundY = this.ground(x, z);
+    const height = 120;
+    const points = [];
+    const steps = 8;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const jitter = (1 - t * 0.6) * 16;
+      const sx = x + Math.sin(t * 9 + x) * jitter * 0.6 + (Math.random() - 0.5) * jitter;
+      const sz = z + Math.cos(t * 7 + z) * jitter * 0.6 + (Math.random() - 0.5) * jitter;
+      points.push(new THREE.Vector3(sx, groundY + 1 + height * (1 - t), sz));
+    }
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const material = new THREE.LineBasicMaterial({
+      color: 0xe6e0ff,
+      transparent: true,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    const line = new THREE.Line(geometry, material);
+    this.group.add(line);
+    this.bolts.push({ line, material, life: 0.18, maxLife: 0.18 });
+    this.addFlash(x, z, 0xc8bcff, 40, 0.2);
+    this.particles.burst(x, groundY, z, 0xd8d0ff, 7, { speed: 8, up: 5, life: 0.35, size: 3.5 });
+  }
+
   update(dt, time) {
     this.particles.update(dt);
+
+    for (let i = this.bolts.length - 1; i >= 0; i--) {
+      const bolt = this.bolts[i];
+      bolt.life -= dt;
+      const t = Math.max(0, bolt.life / bolt.maxLife);
+      // Parpadeo de descarga: no se apaga de forma lineal.
+      bolt.material.opacity = t * (Math.random() < 0.35 ? 0.25 : 1);
+      if (bolt.life <= 0) {
+        this.group.remove(bolt.line);
+        bolt.line.geometry.dispose();
+        bolt.material.dispose();
+        this.bolts.splice(i, 1);
+      }
+    }
 
     for (let i = this.rings.length - 1; i >= 0; i--) {
       const ring = this.rings[i];
@@ -724,6 +1040,12 @@ export class EffectsView {
       flash.material.dispose();
     }
     this.flashes.length = 0;
+    for (const bolt of this.bolts) {
+      this.group.remove(bolt.line);
+      bolt.line.geometry.dispose();
+      bolt.material.dispose();
+    }
+    this.bolts.length = 0;
     this.particles.particles.length = 0;
   }
 

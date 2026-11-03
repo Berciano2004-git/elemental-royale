@@ -508,7 +508,9 @@ Construye el escenario en el cliente a partir de la semilla y de los props que c
 - **Cielo**: esfera con degradado y luces hemisférica + direccional.
 - **Props**: geometrías low-poly agrupadas y `InstancedMesh` por tipo; los landmarks tienen
   modelos propios (torre, chozas, volcán…).
-- **Botín**: `PickupView` con cristales animados, brillo y colores por elemento/rareza.
+- **Botín**: `PickupView` con cristales animados, brillo y colores por elemento/rareza. El
+  cristal es translúcido y lleva dentro un glifo dibujado en lienzo (llama, gota, espiral,
+  montaña y cruz de vida) que mira a la cámara; un `InstancedMesh` por símbolo.
 - **Tormenta**: muro cilíndrico con shader animado, anillo actual y anillo del siguiente círculo.
 - **Minimapa**: canvas 150 × 150 pintado píxel a píxel con bioma, altura y ruido; se entrega al
   HUD.
@@ -524,6 +526,11 @@ la partida.
 - Proyectiles con malla, estela y luz propia según el hechizo.
 - Zonas persistentes: muros, olas, tornados, meteoritos, tormentas… con geometría y shader
   propios, sincronizadas por vida restante.
+- Los tornados (viento y torbellino ígneo) son un embudo de dos capas (`funnelMaterial`): un
+  núcleo estrecho y una pared ancha que giran en sentidos opuestos, con vetas sin costura
+  (frecuencias múltiplo de 2π), bamboleo del vértice, polvo girando en la base y escombros en
+  órbita. La tormenta usa nube de cúpulas, lluvia en partículas y rayos (`spawnBolt`). Los
+  discos de suelo llevan un degradado radial para no dejar contornos duros.
 - `processFx()` traduce eventos del servidor (`cast`, `boom`, `splash`, `hit`, `death`, `pickup`,
   `heal`, `combo`, `quake`…) a partículas y anillos.
 
