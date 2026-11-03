@@ -300,13 +300,16 @@ daño = base × potenciaDeRareza × (fuego equipado ? 1,12 : 1) × tuning del se
 
 | Elemento | Clic izquierdo | Clic derecho | Pasivo |
 | --- | --- | --- | --- |
-| Fuego | `lavabolt`: proyectil con explosión y charco | `flamewall`: muro de fuego de 7 s | +12 % de daño |
+| Fuego | `lavabolt`: orbe que estalla y deja brasas | `flamewall`: muro de fuego de 7 s | +12 % de daño |
 | Agua | `jet`: chorro perforante que ralentiza | `tsunami`: ola que daña y empuja | +1 vida/s |
-| Viento | `gust`: ráfaga que empuja | `tornado`: remolino que atrae | +10 % de velocidad |
-| Tierra | `rocks`: tres rocas | `quake`: daño y ralentización en área | +30 de escudo al recoger |
+| Viento | `gust`: filo perforante que corta y aparta | `tornado`: remolino que atrae | +10 % de velocidad |
+| Tierra | `rocks`: tres peñascos en abanico | `quake`: daño y ralentización alrededor | +30 de escudo al recoger |
+
+Los proyectiles perforantes (`jet`, `gust`) llevan su propio `hit` para no golpear dos veces al
+mismo rival y aplican su efecto (ralentizar o empujar) a cada uno que atraviesan.
 
 Las **combinaciones** (`comboFor`) requieren los dos elementos distintos y una recarga propia
-(20–26 s, 30–45 de maná). Producen zonas persistentes o proyectiles especiales: meteorito,
+(18–24 s, 30–42 de maná). Producen zonas persistentes o proyectiles especiales: meteorito,
 tormenta, pantano, torbellino ígneo, nube de vapor y tormenta de arena.
 
 Los proyectiles se mueven por pasos de 6 unidades como máximo para no atravesar objetivos a gran

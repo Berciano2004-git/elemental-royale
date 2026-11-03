@@ -86,10 +86,10 @@ invencible). Cada elemento aporta dos hechizos y un pasivo al llevarlo equipado.
 
 | Elemento | Clic izquierdo | Clic derecho | Pasivo |
 | --- | --- | --- | --- |
-| 🔥 Fuego | Disparo de lava (explosión + charco ardiente) | Muro de llamas que quema al cruzar | +12 % de daño elemental |
-| 💧 Agua | Chorro de agua perforante | Tsunami que daña y empuja | Regeneras 1 de vida por segundo |
-| 🌀 Viento | Ráfaga de viento que empuja | Tornado que atrae y desgarra | +10 % de velocidad |
-| 🪨 Tierra | Invocar rocas (tres proyectiles) | Terremoto que daña y ralentiza | +30 de escudo al recogerlo |
+| 🔥 Fuego | Orbe de lava (estalla y deja brasas) | Muro de llamas que corta el paso | +12 % de daño elemental |
+| 💧 Agua | Chorro a presión perforante que frena | Ola de marea que golpea y empuja | Regeneras 1 de vida por segundo |
+| 🌀 Viento | Filo de viento que corta en línea | Vórtice que arrastra hacia el centro | +10 % de velocidad |
+| 🪨 Tierra | Lluvia de rocas (tres peñascos) | Sismo que daña y frena alrededor | +30 de escudo al recogerlo |
 
 **Combinaciones (tecla 3)** al llevar dos elementos distintos:
 
@@ -99,7 +99,7 @@ invencible). Cada elemento aporta dos hechizos y un pasivo al llevarlo equipado.
 | Agua + Viento | **Tormenta** — descargas eléctricas en una gran zona |
 | Agua + Tierra | **Pantano de barro** — ralentiza mucho |
 | Fuego + Viento | **Torbellino ígneo** — quemadura en remolino |
-| Agua + Fuego | **Nube de vapor** — ciega y ralentiza |
+| Agua + Fuego | **Nube de vapor** — frena mucho y hace poco daño |
 | Tierra + Viento | **Tormenta de arena** — daño y ralentización amplios |
 
 La **energía mágica** (barra azul) limita el ritmo de lanzamiento; el **aguante** (barra verde)

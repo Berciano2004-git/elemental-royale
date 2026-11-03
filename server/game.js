@@ -752,10 +752,10 @@ export function createGame(wss, options = {}) {
           dz: aim.dz,
           speed: 520 * tune.projSpeed,
           life: 1.5 * tune.duration,
-          dmg: 17 * mult,
+          dmg: 16 * mult,
           radius: 2.6 * tune.projSize,
           splash: 60 * tune.projSize,
-          splashDmg: 9 * mult,
+          splashDmg: 8 * mult,
         });
         break;
       case 'flamewall': {
@@ -768,10 +768,10 @@ export function createGame(wss, options = {}) {
           z: p.z + aim.dz * dist,
           dx: aim.dx,
           dz: aim.dz,
-          width: 155 * tune.projSize,
+          width: 165 * tune.projSize,
           life: 7 * tune.duration,
           maxLife: 7 * tune.duration,
-          dps: 13 * mult,
+          dps: 12 * mult,
           owner: p.id,
         });
         break;
@@ -786,11 +786,11 @@ export function createGame(wss, options = {}) {
           dz: aim.dz,
           speed: 760 * tune.projSpeed,
           life: 0.66 * tune.duration,
-          dmg: 12 * mult,
+          dmg: 11 * mult,
           radius: 3.2 * tune.projSize,
           pierce: true,
           hit: new Set(),
-          slow: { factor: 0.62, duration: 0.8 },
+          slow: { factor: 0.65, duration: 0.9 },
         });
         break;
       case 'tsunami': {
@@ -802,11 +802,11 @@ export function createGame(wss, options = {}) {
           z: p.z + aim.dz * 24,
           dx: aim.dx,
           dz: aim.dz,
-          width: 200 * tune.projSize,
+          width: 210 * tune.projSize,
           speed: 230 * tune.projSpeed,
           life: 3 * tune.duration,
           maxLife: 3 * tune.duration,
-          dmg: 15 * mult,
+          dmg: 14 * mult,
           owner: p.id,
           hit: new Set(),
         });
@@ -822,9 +822,12 @@ export function createGame(wss, options = {}) {
           dz: aim.dz,
           speed: 820 * tune.projSpeed,
           life: 0.6 * tune.duration,
-          dmg: 7 * mult,
+          dmg: 8 * mult,
           radius: 9 * tune.projSize,
-          knock: 60,
+          // Perfora y aparta a cada rival que corta, no solo al primero.
+          pierce: true,
+          hit: new Set(),
+          knock: 45,
         });
         break;
       case 'tornado':
@@ -836,12 +839,12 @@ export function createGame(wss, options = {}) {
           z: aim.z,
           dx: aim.dx,
           dz: aim.dz,
-          r: 95 * tune.projSize,
-          pull: 235 * tune.projSpeed,
+          r: 100 * tune.projSize,
+          pull: 240 * tune.projSpeed,
           speed: 26 * tune.projSpeed,
           life: 6 * tune.duration,
           maxLife: 6 * tune.duration,
-          dps: 10 * mult,
+          dps: 11 * mult,
           owner: p.id,
           strikeTimer: 0.4,
         });
@@ -860,7 +863,7 @@ export function createGame(wss, options = {}) {
             speed: 440 * tune.projSpeed,
             life: 1.35 * tune.duration,
             delay: i * 0.12,
-            dmg: 15 * mult,
+            dmg: 13 * mult,
             radius: 3.4 * tune.projSize,
             knock: 22,
           });
@@ -868,13 +871,13 @@ export function createGame(wss, options = {}) {
         break;
       }
       case 'quake': {
-        const radius = 175 * tune.projSize;
+        const radius = 180 * tune.projSize;
         state.fx.push({ k: 'quake', x: p.x, z: p.z, r: radius, i: p.id });
         for (const target of state.players) {
           if (!target.alive || target.id === p.id) continue;
           if (Math.hypot(target.x - p.x, target.z - p.z) > radius) continue;
-          applyDamage(target, 18 * mult, p);
-          applySlow(target, 0.55, 2.2);
+          applyDamage(target, 16 * mult, p);
+          applySlow(target, 0.5, 2.4);
         }
         break;
       }
@@ -919,22 +922,22 @@ export function createGame(wss, options = {}) {
 
     switch (combo.id) {
       case 'meteor':
-        zone({ type: 'meteor', style: 'fire', x: aim.x, z: aim.z, r: 115 * tune.projSize, delay: 0.7, life: 1.2 * tune.duration, dmg: 32 * mult });
+        zone({ type: 'meteor', style: 'fire', x: aim.x, z: aim.z, r: 120 * tune.projSize, delay: 0.7, life: 1.2 * tune.duration, dmg: 34 * mult });
         break;
       case 'thunderstorm':
-        zone({ type: 'storm', style: 'storm', x: aim.x, z: aim.z, r: 175 * tune.projSize, life: 6 * tune.duration, dps: 9 * mult, slowFactor: 0.75, strikeTimer: 0.4 });
+        zone({ type: 'storm', style: 'storm', x: aim.x, z: aim.z, r: 180 * tune.projSize, life: 6 * tune.duration, dps: 10 * mult, slowFactor: 0.75, strikeTimer: 0.4 });
         break;
       case 'mud':
-        zone({ type: 'mud', style: 'earth', x: aim.x, z: aim.z, r: 150 * tune.projSize, life: 7 * tune.duration, dps: 4 * mult, slowFactor: 0.5 });
+        zone({ type: 'mud', style: 'earth', x: aim.x, z: aim.z, r: 155 * tune.projSize, life: 7 * tune.duration, dps: 4 * mult, slowFactor: 0.5 });
         break;
       case 'firestorm':
-        zone({ type: 'tornado', style: 'fire', x: aim.x, z: aim.z, r: 110 * tune.projSize, pull: 250 * tune.projSpeed, speed: 30 * tune.projSpeed, life: 6 * tune.duration, dps: 14 * mult, strikeTimer: 0.3 });
+        zone({ type: 'tornado', style: 'fire', x: aim.x, z: aim.z, r: 115 * tune.projSize, pull: 250 * tune.projSpeed, speed: 30 * tune.projSpeed, life: 6 * tune.duration, dps: 15 * mult, strikeTimer: 0.3 });
         break;
       case 'steam':
-        zone({ type: 'steam', style: 'steam', x: aim.x, z: aim.z, r: 160 * tune.projSize, life: 7 * tune.duration, dps: 2 * mult, slowFactor: 0.6 });
+        zone({ type: 'steam', style: 'steam', x: aim.x, z: aim.z, r: 165 * tune.projSize, life: 7 * tune.duration, dps: 3 * mult, slowFactor: 0.55 });
         break;
       case 'sandstorm':
-        zone({ type: 'sandstorm', style: 'sand', x: aim.x, z: aim.z, r: 180 * tune.projSize, life: 7 * tune.duration, dps: 7 * mult, slowFactor: 0.6 });
+        zone({ type: 'sandstorm', style: 'sand', x: aim.x, z: aim.z, r: 185 * tune.projSize, life: 7 * tune.duration, dps: 8 * mult, slowFactor: 0.6 });
         break;
       default:
         break;
@@ -1279,6 +1282,7 @@ export function createGame(wss, options = {}) {
                 pr.hit.add(p.id);
                 applyDamage(p, pr.dmg, getPlayer(pr.owner));
                 if (pr.slow) applySlow(p, pr.slow.factor, pr.slow.duration);
+                if (pr.knock) shove(p, pr.dx, pr.dz, pr.knock);
               }
             } else {
               direct = p;

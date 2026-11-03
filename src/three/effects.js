@@ -458,26 +458,47 @@ export class EffectsView {
       dust.scale.setScalar(4);
       group.add(dust);
     } else if (p.k === 'gust') {
+      // Media luna de aire: un anillo abierto y plano que gira al volar.
       material = new THREE.MeshBasicMaterial({
         color,
         transparent: true,
-        opacity: 0.32,
+        opacity: 0.6,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
+        side: THREE.DoubleSide,
         toneMapped: false,
       });
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(2.4, 10, 8), material);
-      mesh.scale.set(1.2, 0.55, 1.2);
-      group.add(mesh);
+      const blade = new THREE.Mesh(new THREE.RingGeometry(1.7, 3.0, 30, 1, 0.25, Math.PI * 1.1), material);
+      blade.rotation.x = -Math.PI / 2;
+      group.add(blade);
+      const halo = new THREE.Sprite(glowMaterial(0xccfff0));
+      halo.scale.setScalar(6);
+      group.add(halo);
     } else {
       material = new THREE.MeshBasicMaterial({ color, toneMapped: false });
-      const geometry = p.k === 'jet' ? new THREE.CapsuleGeometry(0.3, 1.7, 4, 8) : new THREE.IcosahedronGeometry(0.55, 1);
+      // El chorro es un cono que apunta hacia donde vuela (el grupo se orienta
+      // con lookAt); el orbe de lava es una piedra fundida con brasas.
+      const geometry =
+        p.k === 'jet' ? new THREE.ConeGeometry(0.85, 6.5, 12, 1, true) : new THREE.IcosahedronGeometry(0.6, 1);
       const mesh = new THREE.Mesh(geometry, material);
-      mesh.rotation.z = Math.PI / 2;
+      if (p.k === 'jet') {
+        mesh.rotation.x = Math.PI / 2;
+        mesh.position.z = 0.6;
+      } else {
+        mesh.rotation.z = Math.PI / 2;
+      }
       group.add(mesh);
       const sprite = new THREE.Sprite(glowMaterial(color));
-      sprite.scale.setScalar(p.k === 'jet' ? 3.6 : 4.6);
+      sprite.scale.setScalar(p.k === 'jet' ? 4.2 : 4.6);
       group.add(sprite);
+      if (p.k === 'lavabolt') {
+        for (let i = 0; i < 2; i++) {
+          const ember = new THREE.Sprite(glowMaterial(0xffc46b));
+          ember.scale.setScalar(1.7);
+          ember.position.set(Math.cos(i * Math.PI) * 1.3, Math.sin(i * Math.PI) * 0.7, 0);
+          group.add(ember);
+        }
+      }
     }
     group.scale.setScalar(this.projectileScale);
     const holder = { group, material, kind: p.k, x: p.x, z: p.z, dx: p.dx, dz: p.dz, trail: 0 };
@@ -502,6 +523,8 @@ export class EffectsView {
       holder.group.position.set(holder.x, y, holder.z);
       if (holder.kind === 'jet') {
         holder.group.lookAt(holder.x + p.dx, y, holder.z + p.dz);
+      } else if (holder.kind === 'gust') {
+        holder.group.rotation.y += dt * 14;
       } else if (holder.kind === 'rock') {
         holder.group.rotation.x += dt * 6;
         holder.group.rotation.y += dt * 5;
