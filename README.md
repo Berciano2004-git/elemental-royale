@@ -120,9 +120,11 @@ Cada partida genera una isla distinta a partir de una semilla:
   Volcán Dormido y Santuario Verde. Los poderes que aparecen a su alrededor son de mayor
   rareza (raro, épico o legendario).
 - **Cristales de poder** con el símbolo del elemento grabado dentro (llama, gota, espiral,
-  montaña y cruz de vida), así se reconoce el poder desde lejos.
+  montaña y cruz de vida), así se reconoce el poder desde lejos. El **minimapa** marca los
+  cristales cercanos con el color de su elemento (y un tamaño mayor si son épicos o
+  legendarios) para decidir si merece la pena desviarse.
 - **Tormenta arcana** en seis fases: daño creciente, círculo actual en morado y siguiente
-  círculo marcado en el minimapa.
+  círculo marcado en el minimapa. El HUD indica los metros que faltan hasta el borde seguro.
 
 ---
 

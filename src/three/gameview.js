@@ -530,7 +530,10 @@ export class GameView {
         if (Array.isArray(selfSnap.sl) && selfSnap.sl.some((s) => s && s.e === 'wind')) speed *= 1.1;
         if (this.input.sprint && selfSnap.st > 2) speed *= this.adminValue('move.runMultiplier', 1.32);
       }
-      if (selfSnap.sf) speed *= 0.62;
+      // El servidor manda el factor exacto (barro, muro, ola, vórtice…):
+      // antes el cliente usaba un 0,62 fijo y la predicción se adelantaba a
+      // la instantánea, con tirones al salir de una zona lenta.
+      if (selfSnap.sf > 0) speed *= selfSnap.sf;
       if (this.frozen) {
         mx = 0;
         mz = 0;

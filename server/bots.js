@@ -1,8 +1,76 @@
 // IA de los magos controlados por el servidor.
 
 import { ELEMENTS, RARITIES } from '../shared/constants.js';
+import { canTraverse } from '../shared/movement.js';
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+
+// Sondas de la IA: el mago ocupa un círculo y no puede atravesar troncos,
+// rocas ni paredes. Se mira medio paso y un paso entero por delante para
+// reaccionar antes de chocar, no después.
+const PROBE_RADIUS = 3.2;
+// Se muestrea a lo largo del recorrido: mirar solo el final dejaba pasar
+// rumbos que atravesaban un tronco por el medio.
+const PROBE_STEPS = [8, 16, 26];
+
+function rotated(ux, uz, angle) {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return { mx: ux * cos - uz * sin, mz: ux * sin + uz * cos };
+}
+
+function pathClear(world, x, z, ux, uz) {
+  for (const distance of PROBE_STEPS) {
+    if (!canTraverse(world, x + ux * distance, z + uz * distance, PROBE_RADIUS)) return false;
+  }
+  return true;
+}
+
+function clearHeading(world, x, z, ux, uz, sign, angles) {
+  for (const angle of angles) {
+    const heading = rotated(ux, uz, angle * sign);
+    if (pathClear(world, x, z, heading.mx, heading.mz)) return { ...heading, angle };
+  }
+  return null;
+}
+
+// Ataque local: si el rumbo deseado está tapado, gira lo justo hacia el lado
+// más despejado y mantiene ese lado medio segundo para no oscilar. Sin esto
+// los bots caminaban de frente contra el primer árbol y solo se soltaban con
+// un rodeo aleatorio cuando ya llevaban medio segundo parados.
+export function steerAround(world, x, z, mx, mz, memory, time) {
+  const len = Math.hypot(mx, mz);
+  if (len < 0.001) return { mx: 0, mz: 0 };
+  if (!memory) memory = {};
+  const ux = mx / len;
+  const uz = mz / len;
+  if (pathClear(world, x, z, ux, uz)) {
+    memory.sign = 0;
+    memory.until = 0;
+    return { mx: ux, mz: uz };
+  }
+  if (memory.sign && memory.until > time) {
+    const side = clearHeading(world, x, z, ux, uz, memory.sign, [0.35, 0.7, 1.05, 1.4]);
+    if (side) return { mx: side.mx, mz: side.mz };
+  }
+  const right = clearHeading(world, x, z, ux, uz, 1, [0.55, 1.05, 1.5]);
+  const left = clearHeading(world, x, z, ux, uz, -1, [0.55, 1.05, 1.5]);
+  const pick = !right ? left : !left ? right : right.angle <= left.angle ? right : left;
+  if (pick) {
+    memory.sign = pick === right ? 1 : -1;
+    memory.lastSign = memory.sign;
+    memory.until = time + 0.6;
+    return { mx: pick.mx, mz: pick.mz };
+  }
+  // Sin salida: empuja de lado para que el deslizamiento del movimiento
+  // resuelva la esquina en lugar de quedarse clavado de frente.
+  const sign = memory.sign || memory.lastSign || 1;
+  memory.sign = sign;
+  memory.lastSign = sign;
+  memory.until = time + 0.4;
+  const slide = rotated(ux, uz, 1.2 * sign);
+  return { mx: slide.mx, mz: slide.mz };
+}
 
 function hasPower(bot) {
   return bot.slots.some((s) => s);
@@ -214,6 +282,8 @@ export function updateBots(game, dt) {
 
     ai.think -= dt;
     ai.castCd -= dt;
+    ai.clock = (ai.clock || 0) + dt;
+    if (!ai.steer) ai.steer = { sign: 0, until: 0, lastSign: 1 };
     ai.stuckTimer = (ai.stuckTimer || 0) + dt;
 
     if (ai.think <= 0) {
@@ -242,6 +312,7 @@ export function updateBots(game, dt) {
       if (d > preferred + 70) {
         mx += nx;
         mz += nz;
+        sprint = d > 320 && bot.stamina > 30;
       } else if (d < preferred - 90) {
         mx -= nx * 0.9;
         mz -= nz * 0.9;
@@ -263,26 +334,36 @@ export function updateBots(game, dt) {
       } else if (ai.mode !== 'fight') {
         ai.think = 0;
       }
-      sprint = ai.mode === 'safe' && d > 120;
+      sprint =
+        (ai.mode === 'safe' && d > 120) ||
+        (ai.mode === 'flee' && d > 60) ||
+        (ai.mode === 'loot' && d > 240);
     }
 
-    // Detección de bloqueos: busca una ruta alternativa si no avanza.
+    // Ataque local de obstáculos: gira el rumbo deseado lo justo para no
+    // empotrarse contra un tronco o una roca. El servidor sigue decidiendo si
+    // el paso es válido; esto solo evita que la IA empuje de frente.
+    if ((mx || mz) && game.world) {
+      const steered = steerAround(game.world, bot.x, bot.z, mx, mz, ai.steer, ai.clock);
+      mx = steered.mx;
+      mz = steered.mz;
+    }
+
+    // Detección de bloqueos: cambia de lado y recalcula el rumbo sin
+    // abandonar el objetivo. Antes un bot en plena huida podía ponerse a
+    // vagar y quedarse fuera del círculo seguro.
     if (ai.stuckTimer > 0.7) {
       const moved = Math.hypot(bot.x - ai.lastX, bot.z - ai.lastZ);
       ai.stuckTimer = 0;
       ai.lastX = bot.x;
       ai.lastZ = bot.z;
       if (moved < 3 && (mx || mz)) {
-        const angle = Math.random() * Math.PI * 2;
-        const px = bot.x + Math.cos(angle) * (40 + Math.random() * 60);
-        const pz = bot.z + Math.sin(angle) * (40 + Math.random() * 60);
-        if (game.world.canStand(px, pz, 3)) {
-          ai.goal = { x: px, z: pz };
-          ai.mode = 'wander';
-          ai.targetId = 0;
-          ai.think = 0.5;
-        }
         ai.strafe *= -1;
+        if (ai.steer.sign) ai.steer.sign *= -1;
+        ai.steer.lastSign = ai.steer.sign || ai.steer.lastSign;
+        ai.steer.until = ai.clock + 0.45;
+        ai.think = 0;
+        if (ai.mode === 'loot' || ai.mode === 'wander') ai.goal = null;
       }
     }
 

@@ -219,7 +219,7 @@ Instantánea (`snap`), por jugador:
   mn, st,            // maná y aguante redondeados
   j,                 // altura del salto
   sw,                // nadando
-  sf,                // ralentizado
+  sf,                // factor de ralentización (0 = sin ralentizar)
   place
 }
 ```
@@ -344,7 +344,11 @@ tenga más bajas y vida.
 - Valoran cristales por rareza, huecos libres y cercanía; ignoran los que acaban de soltar.
 - En combate mantienen una distancia preferida (~260 u), orbitan y apuntan con predicción.
 - Eligen hechizo disponible por coste/recarga y, a veces, combinan.
-- Detectan atascos comparando su posición y buscan un rodeo.
+- Esquivan obstáculos con tres sondas por delante (8, 16 y 26 unidades) y eligen el desvío
+  más corto, manteniéndolo medio segundo para no oscilar. Así rodean troncos y rocas en vez
+  de empujar de frente; el servidor sigue validando cada paso.
+- Detectan atascos comparando su posición, cambian de lado y recalculan el rumbo sin
+  abandonar el objetivo (antes podían ponerse a vagar en plena huida de la tormenta).
 
 ---
 
@@ -472,11 +476,9 @@ La cámara:
 - `resetCamera()` (botón del panel) devuelve la órbita al sur, la inclinación configurada y la
   distancia de seguimiento.
 
-### 7.5 HUD, audio y efectos
-
-- `HUD` lee la última instantánea: vida, escudo, maná, aguante, poderes con recarga, combinación,
-  tormenta, cronómetro, minimapa, killfeed, avisos y nombres flotantes proyectados desde la
-  cámara.
+### 7.5 HUD, audio y efectos- `HUD` lee la última instantánea: vida, escudo, maná, aguante, poderes con recarga, combinación,
+  tormenta (con los metros hasta el borde seguro), cronómetro, minimapa con los cristales
+  cercanos, killfeed, avisos y nombres flotantes proyectados desde la cámara.
 - `SoundEngine` genera todo con osciladores y ruido: pads de menú/batalla, pasos, saltos, casteos
   por elemento, impactos, recogidas, muerte y un zumbido de tormenta cuya intensidad depende de
   la distancia al círculo.

@@ -394,7 +394,7 @@ net.on('snap', (msg) => {
   gameView.applySnapshot(msg);
   lastSnapshot = msg;
   selfSnapshot = msg.players.find((p) => p.i === selfId) || null;
-  hud.update(msg, selfId);
+  hud.update(msg, selfId, gameView.world?.pickups?.order);
   processFx(msg.fx || []);
   if (selfSnapshot) {
     const totalHp = selfSnapshot.hp + selfSnapshot.sh;

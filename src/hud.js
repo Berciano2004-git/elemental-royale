@@ -72,6 +72,7 @@ export class HUD {
     this.lastSelf = null;
     this.snap = null;
     this.selfId = 0;
+    this.pickups = null;
     this.minimapBg = null;
     this.stormAmount = 0;
     this.slotCache = [null, null];
@@ -99,6 +100,7 @@ export class HUD {
     this.slotCdCache = [null, null];
     this.lastSelf = null;
     this.snap = null;
+    this.pickups = null;
     this.killfeed.innerHTML = '';
     this.toasts.innerHTML = '';
     this.spectate.classList.add('hidden');
@@ -141,9 +143,10 @@ export class HUD {
     this.regionLabel.textContent = REGION_NAMES[regionKey] || 'La isla';
   }
 
-  update(snap, selfId) {
+  update(snap, selfId, pickups = null) {
     this.snap = snap;
     this.selfId = selfId;
+    if (pickups) this.pickups = pickups;
     const self = snap.players.find((p) => p.i === selfId);
     if (!self) return;
     this.lastSelf = self;
@@ -171,17 +174,24 @@ export class HUD {
     this.stormPhase.textContent = phase;
     const dist = Math.hypot(self.x - storm.cx, self.z - storm.cz);
     const outside = dist > storm.r - 4;
+    // Metros hasta el borde: el radio del círculo no dice cuánto hay que
+    // correr, así que el HUD muestra la distancia real que falta.
+    const edge = Math.max(0, Math.round(dist - storm.r));
     let status = '';
     let sub = '';
     if (outside) {
       status = `¡Fuera de la tormenta! −${storm.dps} vida/s`;
-      sub = 'Corre hacia el círculo seguro';
+      sub = `Corre al círculo seguro: ${edge} m`;
     } else if (storm.mode === 'wait') {
+      const next = storm.next;
+      const nextEdge = next
+        ? Math.max(0, Math.round(Math.hypot(self.x - next.x, self.z - next.z) - next.r))
+        : 0;
       status = `La tormenta se cierra en ${Math.ceil(storm.timer)}s`;
-      sub = storm.next ? `Siguiente círculo: ${Math.round(storm.next.r)} m` : 'Prepárate';
+      sub = next ? `Siguiente círculo a ${nextEdge} m` : 'Prepárate';
     } else if (storm.mode === 'shrink') {
       status = `¡La tormenta avanza! ${Math.ceil(storm.timer)}s`;
-      sub = 'Sigue el círculo azul del minimapa';
+      sub = `Te quedan ${Math.max(0, Math.round(storm.r - dist))} m de margen`;
     } else {
       status = 'Tormenta final';
       sub = `Daño ${storm.dps}/s · no hay refugio`;
@@ -455,6 +465,36 @@ export class HUD {
       ctx.lineWidth = 2;
       ctx.arc(center.x, center.y, r, 0, Math.PI * 2);
       ctx.stroke();
+    }
+    // Cristales cercanos: el radar del minimapa ayuda a decidir si merece la
+    // pena desviarse antes de que el círculo se cierre.
+    if (this.pickups && this.pickups.length) {
+      const self = snap.players.find((p) => p.i === this.selfId);
+      const cx = self ? self.x : 0;
+      const cz = self ? self.z : 0;
+      const reach = 620;
+      for (const pickup of this.pickups) {
+        if (pickup.kind !== 'power' && pickup.kind !== 'heal') continue;
+        const dx = pickup.x - cx;
+        const dz = pickup.z - cz;
+        if (dx * dx + dz * dz > reach * reach) continue;
+        const pos = toMap(pickup.x, pickup.z);
+        if (pickup.kind === 'heal') {
+          ctx.fillStyle = 'rgba(123, 255, 207, 0.9)';
+          ctx.fillRect(pos.x - 1.1, pos.y - 1.1, 2.2, 2.2);
+          continue;
+        }
+        const meta = ELEMENTS[pickup.element] || ELEMENTS.fire;
+        const size = pickup.rarity === 'epic' || pickup.rarity === 'legendary' ? 2.4 : 1.7;
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y - size);
+        ctx.lineTo(pos.x + size, pos.y);
+        ctx.lineTo(pos.x, pos.y + size);
+        ctx.lineTo(pos.x - size, pos.y);
+        ctx.closePath();
+        ctx.fillStyle = rgba(meta.color, 0.9);
+        ctx.fill();
+      }
     }
     for (const p of snap.players) {
       if (!p.al) continue;

@@ -1500,7 +1500,7 @@ export function createGame(wss, options = {}) {
         st: Math.round(p.stamina),
         j: r2(p.jumpY),
         sw: p.swimming ? 1 : 0,
-        sf: p.slowUntil > s.matchTime ? 1 : 0,
+        sf: p.slowUntil > s.matchTime ? r2(p.slowFactor) : 0,
         place: p.place,
       })),
       projs: s.projectiles.map((pr) => ({
