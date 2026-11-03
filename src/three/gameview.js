@@ -534,6 +534,9 @@ export class GameView {
       // antes el cliente usaba un 0,62 fijo y la predicción se adelantaba a
       // la instantánea, con tirones al salir de una zona lenta.
       if (selfSnap.sf > 0) speed *= selfSnap.sf;
+      // Inmovilizado por raíces, hielo o prisión: el servidor manda y la
+      // predicción no debe seguir deslizando al mago.
+      if (selfSnap.rt) speed = 0;
       if (this.frozen) {
         mx = 0;
         mz = 0;

@@ -220,6 +220,7 @@ Instantánea (`snap`), por jugador:
   j,                 // altura del salto
   sw,                // nadando
   sf,                // factor de ralentización (0 = sin ralentizar)
+  rt,                // inmovilizado por raíces, hielo o prisión
   place
 }
 ```
@@ -290,7 +291,7 @@ usa exactamente el mismo umbral para predecir. La orilla no es un muro: `canStan
 
 ### 5.4 Hechizos
 
-Cada elemento tiene dos habilidades con recarga, maná y alcance propios, más un pasivo.
+Cada elemento tiene cuatro habilidades con recarga, maná y alcance propios, más un pasivo.
 `castAbility()` comprueba fase, poder, recarga y maná; descuenta el coste, arranca la recarga y
 resuelve el efecto. El daño final es:
 
@@ -298,24 +299,42 @@ resuelve el efecto. El daño final es:
 daño = base × potenciaDeRareza × (fuego equipado ? 1,12 : 1) × tuning del servidor
 ```
 
-| Elemento | Clic izquierdo | Clic derecho | Pasivo |
-| --- | --- | --- | --- |
-| Fuego | `lavabolt`: orbe que estalla y deja brasas | `flamewall`: muro de fuego de 7 s | +12 % de daño |
-| Agua | `jet`: chorro perforante que ralentiza | `tsunami`: ola que daña y empuja | +1 vida/s |
-| Viento | `gust`: filo perforante que corta y aparta | `tornado`: remolino que atrae | +10 % de velocidad |
-| Tierra | `rocks`: tres peñascos en abanico | `quake`: daño y ralentización alrededor | +30 de escudo al recoger |
+| Elemento | Clic izq. | Clic der. | Tecla 4 | Tecla 5 |
+| --- | --- | --- | --- | --- |
+| Fuego | `fireball`: orbe que estalla y deja brasas | `meteorrain`: cuatro meteoritos | `flamewall`: muro de fuego | `fireburst`: estallido circular |
+| Agua | `jet`: chorro perforante | `tsunami`: ola que empuja | `waterprison`: esfera que atrapa | `geyser`: columna intermitente |
+| Aire | `tornado`: remolino que atrae | `gust`: ráfaga perforante | `airjump`: salto y desplazamiento | `windcutter`: dos cuchillas |
+| Tierra | `rocks`: tres peñascos | `stonewall`: muro de bloques | `spikes`: pinchos del suelo | `golem`: coloso invocado |
+| Rayo | `discharge`: línea instantánea | `chain`: cadena que salta | `blink`: teletransporte | `electricfield`: campo continuo |
+| Hielo | `icelances`: tres carámbanos | `freeze`: congelación en área | `slippery`: placa helada | `iceprison`: jaula de hielo |
+| Naturaleza | `roots`: raíces que atrapan | `vines`: látigo en cadena | `tree`: cobertura real | `spores`: nube venenosa |
+| Oscuridad | `shadowstep`: salto entre sombras | `darkness`: cúpula que ciega | `shadowbolts`: orbes que persiguen | `shadowclone`: señuelo que frena |
+
+Cada habilidad es una receta declarativa en `shared/spellbook.js`: `fx.kind` elige la
+primitiva (proyectil, salida múltiple, zona, estallido, rayo, salto, invocación) y `fx.style`
+tiñe y da forma al efecto en el cliente. Añadir un hechizo es añadir una entrada, no un sistema.
 
 Los proyectiles perforantes (`jet`, `gust`) llevan su propio `hit` para no golpear dos veces al
 mismo rival y aplican su efecto (ralentizar o empujar) a cada uno que atraviesan.
 
-Las **combinaciones** (`comboFor`) requieren los dos elementos distintos y una recarga propia
-(18–24 s, 30–42 de maná). Producen zonas persistentes o proyectiles especiales: meteorito,
-tormenta, pantano, torbellino ígneo, nube de vapor y tormenta de arena.
+Las **fusiones** (`comboFor`) requieren los dos elementos distintos y una recarga propia
+(18–26 s, 30–46 de maná). Hay 28, una por pareja, y todas usan las mismas primitivas que las
+habilidades: Vapor, Tormenta ígnea, Magma, Plasma, Choque térmico, Incendio forestal, Llama
+abismal, Tormenta helada, Pantano, Sobrecarga, Maremoto glaciar, Crecimiento salvaje, Abismo,
+Tormenta de arena, Huracán eléctrico, Ventisca, Polen salvaje, Vendaval espectral, Terremoto
+eléctrico, Cristalización, Guardián ancestral, Prisión abismal, Tormenta polar, Sobrecarga
+vital, Relámpago sombrío, Jardín glacial, Escarcha espectral y Bosque maldito.
 
 Los proyectiles se mueven por pasos de 6 unidades como máximo para no atravesar objetivos a gran
-velocidad; algunos perforan, otros explotan o empujan. Las zonas (`wall`, `wave`, `tornado`,
-`meteor`, `thunderstorm`…) viven en `state.zones`, aplican daño por segundo o por impacto y se
-sincronizan al cliente con su vida restante.
+velocidad; algunos perforan, otros explotan, empujan o persiguen levemente. Las zonas (`wall`,
+`wave`, `tornado`, `meteor`, `field`, `prison`, `spikes`, `geyser`, `tree`, `plasma`, `summon`)
+viven en `state.zones`, aplican daño por segundo o por impacto y se sincronizan al cliente con su
+vida restante. Los árboles detienen proyectiles enemigos y las invocaciones (golem, guardián,
+clon) se mueven y golpean desde el servidor.
+
+`applyRoot()` marca `rootUntil`: raíces, congelación y prisiones anulan el movimiento durante
+unos instantes, pero nunca el apuntado ni el lanzamiento. El cliente recibe `rt` en la
+instantánea y usa el mismo freno en su predicción.
 
 ### 5.5 Daño, muerte y fin
 

@@ -539,7 +539,7 @@ const RARITY_SCALE = { common: 0.82, uncommon: 0.9, rare: 1.0, epic: 1.08, legen
 // Símbolos dibujados en lienzo: uno por elemento y otro para los cristales de
 // vida. Se dibujan en blanco con un contorno oscuro para que se lean sobre
 // cualquier color de cristal.
-const GLYPH_KEYS = ['fire', 'water', 'wind', 'earth', 'heal'];
+const GLYPH_KEYS = ['fire', 'water', 'wind', 'earth', 'lightning', 'ice', 'nature', 'dark', 'heal'];
 const glyphTextureCache = new Map();
 
 function glyphTexture(key) {
@@ -576,6 +576,43 @@ function glyphTexture(key) {
         }
         break;
       }
+      case 'lightning':
+        // Rayo en zigzag.
+        ctx.moveTo(6, -46);
+        ctx.lineTo(-18, -2);
+        ctx.lineTo(2, -2);
+        ctx.lineTo(-8, 46);
+        ctx.lineTo(24, 4);
+        ctx.lineTo(4, 4);
+        ctx.lineTo(18, -46);
+        ctx.closePath();
+        break;
+      case 'ice':
+        // Copo de seis brazos.
+        for (let i = 0; i < 6; i++) {
+          const angle = (i / 6) * Math.PI * 2 - Math.PI / 2;
+          const x = Math.cos(angle) * 42;
+          const y = Math.sin(angle) * 42;
+          ctx.moveTo(0, 0);
+          ctx.lineTo(x, y);
+          ctx.moveTo(x * 0.55 + Math.cos(angle + 0.9) * 12, y * 0.55 + Math.sin(angle + 0.9) * 12);
+          ctx.lineTo(x * 0.55, y * 0.55);
+          ctx.lineTo(x * 0.55 + Math.cos(angle - 0.9) * 12, y * 0.55 + Math.sin(angle - 0.9) * 12);
+        }
+        break;
+      case 'nature':
+        // Hoja con nervio central.
+        ctx.moveTo(0, -44);
+        ctx.bezierCurveTo(40, -20, 34, 22, 0, 44);
+        ctx.bezierCurveTo(-34, 22, -40, -20, 0, -44);
+        ctx.closePath();
+        break;
+      case 'dark':
+        // Luna menguante.
+        ctx.arc(0, 0, 40, Math.PI * 0.45, Math.PI * 1.55);
+        ctx.bezierCurveTo(-6, 22, -6, -22, 17, -36);
+        ctx.closePath();
+        break;
       case 'earth':
         // Montaña de dos picos.
         ctx.moveTo(-40, 28);
@@ -616,8 +653,8 @@ function glyphTexture(key) {
   ctx.shadowColor = 'rgba(255,255,255,0.7)';
   ctx.shadowBlur = 10;
   trace();
-  if (key === 'wind') {
-    // La espiral es solo trazo: contorno ancho y línea blanca encima.
+  if (key === 'wind' || key === 'ice') {
+    // La espiral y el copo son solo trazo: contorno ancho y línea blanca encima.
     ctx.strokeStyle = 'rgba(9,14,28,0.72)';
     ctx.lineWidth = 13;
     ctx.stroke();
@@ -744,7 +781,7 @@ export class PickupView {
   update(time, camera = null) {
     if (!this.order) return;
     const count = this.core.count;
-    const seen = { fire: 0, water: 0, wind: 0, earth: 0, heal: 0 };
+    const seen = Object.fromEntries(GLYPH_KEYS.map((key) => [key, 0]));
     for (const mesh of this.glyphs.values()) mesh.count = 0;
     const view = camera ? camera.quaternion : null;
     for (let i = 0; i < count; i++) {

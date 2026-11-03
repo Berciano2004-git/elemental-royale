@@ -55,8 +55,9 @@ npm start          # http://localhost:8080
 | **Botón central (arrastrar)** | Orbitar la cámara con el ratón |
 | **Clic izquierdo** | Hechizo principal del poder activo |
 | **Clic derecho** | Hechizo secundario del poder activo |
-| **1 / 2** | Cambiar de poder equipado |
-| **3** | Combinación elemental (con dos elementos distintos) |
+| **1 / 2** | Cambiar de elemento equipado |
+| **3** | Fusión elemental (con dos elementos distintos) |
+| **4 / 5** | Tercer y cuarto hechizo del elemento activo |
 | **Espacio** | Saltar (también salta la cinemática de nado) |
 | **Shift** | Correr, consume aguante |
 | **V** | Primera persona / vista elevada (el puntero se captura y se mira con el ratón) |
@@ -80,27 +81,53 @@ saltar. La primera entrada dispara una breve cinemática de agua que puedes salt
 
 ## 🔥 Poderes y combinaciones
 
-Cada poder encontrado es uno de los cuatro elementos, con una **rareza** que multiplica su daño
+Cada poder encontrado es uno de los ocho elementos, con una **rareza** que multiplica su daño
 (común, poco común, raro, épico y legendario; más rareza = más potencia, pero ninguna es
 invencible). Cada elemento aporta dos hechizos y un pasivo al llevarlo equipado.
 
-| Elemento | Clic izquierdo | Clic derecho | Pasivo |
-| --- | --- | --- | --- |
-| 🔥 Fuego | Orbe de lava (estalla y deja brasas) | Muro de llamas que corta el paso | +12 % de daño elemental |
-| 💧 Agua | Chorro a presión perforante que frena | Ola de marea que golpea y empuja | Regeneras 1 de vida por segundo |
-| 🌀 Viento | Filo de viento que corta en línea | Vórtice que arrastra hacia el centro | +10 % de velocidad |
-| 🪨 Tierra | Lluvia de rocas (tres peñascos) | Sismo que daña y frena alrededor | +30 de escudo al recogerlo |
+| Elemento | Pasivo | Hechizos (clic izq. · clic der. · 4 · 5) |
+| --- | --- | --- |
+| 🔥 Fuego | +12 % de daño elemental | Bola de fuego · Lluvia de meteoritos · Muro de llamas · Explosión ígnea |
+| 💧 Agua | Regeneras 1 de vida por segundo | Chorro a presión · Ola de marea · Prisión de agua · Géiser |
+| 🌀 Aire | +10 % de velocidad | Tornado · Ráfaga de viento · Salto aéreo · Corte de viento |
+| 🪨 Tierra | +30 de escudo al recoger el poder | Rocas proyectiles · Muro de piedra · Pinchos terrestres · Golem de piedra |
+| ⚡ Rayo | Tus hechizos se recargan un 8 % más rápido | Descarga eléctrica · Cadena de rayos · Teletransporte eléctrico · Campo electrificado |
+| ❄️ Hielo | Los cristales de vida te curan 6 más | Lanzas de hielo · Congelación · Suelo resbaladizo · Prisión de hielo |
+| 🌿 Naturaleza | Recuperas 5 de vida al recoger un cristal | Raíces atrapantes · Enredaderas · Árbol protector · Esporas venenosas |
+| 🌑 Oscuridad | Ganas 15 de escudo al recoger oscuridad | Paso sombrío · Zona de oscuridad · Proyectiles sombríos · Clon de sombras |
 
-**Combinaciones (tecla 3)** al llevar dos elementos distintos:
+**Fusiones (tecla 3)** al llevar dos elementos distintos: 28 recetas, una por pareja.
 
-| Combinación | Efecto |
-| --- | --- |
-| Fuego + Tierra | **Meteorito** — impacto enorme y cráter ardiente |
-| Agua + Viento | **Tormenta** — descargas eléctricas en una gran zona |
-| Agua + Tierra | **Pantano de barro** — ralentiza mucho |
-| Fuego + Viento | **Torbellino ígneo** — quemadura en remolino |
-| Agua + Fuego | **Nube de vapor** — frena mucho y hace poco daño |
-| Tierra + Viento | **Tormenta de arena** — daño y ralentización amplios |
+| Fusión | Nombre | Efecto |
+| --- | --- | --- |
+| Fuego + Agua | **Vapor** | Nube enorme que frena y escalda |
+| Fuego + Aire | **Tormenta ígnea** | Tornado de llamas que avanza |
+| Fuego + Tierra | **Magma** | Grietas volcánicas que escupen lava |
+| Fuego + Rayo | **Plasma** | Esfera que estalla en descargas |
+| Fuego + Hielo | **Choque térmico** | Estallido que aparta y desestabiliza |
+| Fuego + Naturaleza | **Incendio forestal** | Fuego que se extiende por el terreno |
+| Fuego + Oscuridad | **Llama abismal** | Fuego negro que persigue al objetivo |
+| Agua + Aire | **Tormenta helada** | Lluvia gélida que ralentiza |
+| Agua + Tierra | **Pantano** | Barro que atrapa los pies |
+| Agua + Rayo | **Sobrecarga** | Agua electrificada con arcos |
+| Agua + Hielo | **Maremoto glaciar** | Ola congelante que avanza |
+| Agua + Naturaleza | **Crecimiento salvaje** | Vegetación gigante que retiene |
+| Agua + Oscuridad | **Abismo** | Vórtice oscuro que atrae |
+| Aire + Tierra | **Tormenta de arena** | Polvo que daña y ciega |
+| Aire + Rayo | **Huracán eléctrico** | Tornado con descargas |
+| Aire + Hielo | **Ventisca** | Nieve que ralentiza y congela |
+| Aire + Naturaleza | **Polen salvaje** | Esporas que frenan |
+| Aire + Oscuridad | **Vendaval espectral** | Desplazamiento sombrío con estallido |
+| Tierra + Rayo | **Terremoto eléctrico** | Grietas con descargas en cadena |
+| Tierra + Hielo | **Cristalización** | Grandes cristales que encierran |
+| Tierra + Naturaleza | **Guardián ancestral** | Coloso de piedra y raíces que combate |
+| Tierra + Oscuridad | **Prisión abismal** | Jaula de piedra oscura |
+| Rayo + Hielo | **Tormenta polar** | Cristales electrificados |
+| Rayo + Naturaleza | **Sobrecarga vital** | Raíces conductoras |
+| Rayo + Oscuridad | **Relámpago sombrío** | Salto eléctrico entre sombras |
+| Hielo + Naturaleza | **Jardín glacial** | Vegetación congelada que atrapa |
+| Hielo + Oscuridad | **Escarcha espectral** | Niebla oscura que congela |
+| Naturaleza + Oscuridad | **Bosque maldito** | Raíces sombrías que persiguen |
 
 La **energía mágica** (barra azul) limita el ritmo de lanzamiento; el **aguante** (barra verde)
 limita correr. Todos los hechizos tienen recarga visible en el HUD.
@@ -120,7 +147,7 @@ Cada partida genera una isla distinta a partir de una semilla:
   Volcán Dormido y Santuario Verde. Los poderes que aparecen a su alrededor son de mayor
   rareza (raro, épico o legendario).
 - **Cristales de poder** con el símbolo del elemento grabado dentro (llama, gota, espiral,
-  montaña y cruz de vida), así se reconoce el poder desde lejos. El **minimapa** marca los
+  montaña, rayo, copo, hoja, luna y cruz de vida), así se reconoce el poder desde lejos. El **minimapa** marca los
   cristales cercanos con el color de su elemento (y un tamaño mayor si son épicos o
   legendarios) para decidir si merece la pena desviarse.
 - **Tormenta arcana** en seis fases: daño creciente, círculo actual en morado y siguiente
@@ -327,6 +354,13 @@ Con un servidor de pruebas en el puerto 8081:
 PORT=8081 node server/index.js --prod
 npm run test:match     # conexión, inicio, movimiento, botín, hechizo y combinación
 npm run test:end       # partida completa hasta el ganador y reinicio de sala (varios minutos)
+```
+
+El grimario completo se prueba en desarrollo, porque usa el teletransporte de la consola:
+
+```bash
+PORT=8081 node server/index.js
+npm run test:spells    # recoge un cristal de cada elemento y lanza sus 32 hechizos
 ```
 
 `test:match` comprueba el movimiento autoritativo, la recogida de poderes, el gasto de maná,

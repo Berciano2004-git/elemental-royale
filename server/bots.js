@@ -239,6 +239,9 @@ function tryCast(game, bot, target) {
     if (!meta) continue;
     for (let index = 0; index < meta.abilities.length; index++) {
       const ability = meta.abilities[index];
+      // Los bots no usan los desplazamientos ni los saltos mágicos: se
+      // teleportarían lejos del combate y dejarían de leer la situación.
+      if (ability.fx && (ability.fx.kind === 'dash' || ability.fx.kind === 'leap')) continue;
       if (!elementReady(bot, power.element, index)) continue;
       if (bot.mana < ability.mana) continue;
       if (ability.range > 0 && distance > ability.range * 0.92) continue;

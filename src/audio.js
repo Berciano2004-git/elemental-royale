@@ -214,6 +214,24 @@ export class SoundEngine {
         this.tone(90, 0.42, 'sawtooth', 0.08, 0, 0.01, 45);
         this.noise(0.35, 0.1, 350, 'lowpass', 0, 120);
         break;
+      case 'lightning':
+        this.noise(0.22, 0.14, 3800, 'highpass', 0, 900);
+        this.tone(1200, 0.16, 'square', 0.03, 0, 0.005, 240);
+        this.tone(300, 0.3, 'sawtooth', 0.04, 0.02, 0.01, 80);
+        break;
+      case 'ice':
+        this.tone(880, 0.34, 'triangle', 0.045, 0, 0.02, 1320);
+        this.noise(0.3, 0.05, 5200, 'highpass', 0, 1600);
+        break;
+      case 'nature':
+        this.tone(196, 0.36, 'triangle', 0.06, 0, 0.03, 240);
+        this.noise(0.34, 0.06, 900, 'bandpass', 0, 320);
+        break;
+      case 'dark':
+        this.tone(70, 0.5, 'sine', 0.08, 0, 0.04, 42);
+        this.tone(220, 0.4, 'sawtooth', 0.035, 0.03, 0.05, 110);
+        this.noise(0.4, 0.04, 500, 'lowpass', 0, 90);
+        break;
       default:
         this.tone(440, 0.2, 'sine', 0.05);
     }

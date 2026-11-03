@@ -1652,7 +1652,10 @@ kbd {
 
 .ability-hints {
   display: flex;
-  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 14px;
+  max-width: min(820px, 92vw);
   font-size: 9.5px;
   color: var(--muted);
   text-transform: uppercase;

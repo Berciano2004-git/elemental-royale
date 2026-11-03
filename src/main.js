@@ -551,6 +551,8 @@ window.addEventListener('keydown', (event) => {
   else if (event.code === 'Digit1') sendSelect(0);
   else if (event.code === 'Digit2') sendSelect(1);
   else if (event.code === 'Digit3') sendCombo();
+  else if (event.code === 'Digit4') castActive(2);
+  else if (event.code === 'Digit5') castActive(3);
   else if (event.code === 'Space') {
     if (gameView.skipCine()) return;
     if (gameView.jump()) {
@@ -638,15 +640,25 @@ sceneCanvas.addEventListener('mousedown', (event) => {
     requestLookLock();
     return;
   }
-  const ability = event.button === 0 ? 0 : 1;
+  castActive(event.button === 0 ? 0 : 1);
+});
+
+// Lanza uno de los cuatro hechizos del elemento activo. Comparten la misma
+// validación que usa el servidor: sin poder, sin maná o en recarga no sale.
+function castActive(ability) {
+  if (!selfSnapshot || !selfSnapshot.al) return;
   const slot = selfSnapshot.act;
   const power = selfSnapshot.sl[slot];
   if (!power) {
     hud.toast('Necesitas un poder. Busca un cristal elemental.', '#f3c96b');
     return;
   }
-  const cds = selfSnapshot.cd[slot] || [0, 0];
+  const cds = selfSnapshot.cd[slot] || [0, 0, 0, 0];
   if (cds[ability] > 0) return;
+  if (selfSnapshot.rt) {
+    hud.toast('Estás inmovilizado', '#9feaff');
+    return;
+  }
   if (selfSnapshot.mn < ELEMENTS[power.e].abilities[ability].mana) {
     hud.toast('Maná insuficiente', '#82d8ff');
     return;
@@ -660,7 +672,7 @@ sceneCanvas.addEventListener('mousedown', (event) => {
   const state = gameView.states.get(selfId);
   state?.model.flashCast();
   audio.cast(power.e);
-});
+}
 
 window.addEventListener('wheel', (event) => {
   if (!inMatch || admin.isOpen() || ui.currentScreen() !== 'none') return;

@@ -27,12 +27,14 @@ import { HALF_WORLD } from '../shared/constants.js';
 import { clamp, createWorld, elevationAt, findOpenSpot, MOUNTAIN_LEVEL } from '../shared/worldgen.js';
 import { moveWithCollision, normalizeInput } from '../shared/movement.js';
 import { SWIM_DEPTH, SWIM_SPEED_MULT } from '../shared/constants.js';
+import { STYLE_COLORS } from '../shared/palette.js';
 import { updateBots } from './bots.js';
 
 const r1 = (v) => Math.round(v * 10) / 10;
 const r2 = (v) => Math.round(v * 100) / 100;
 const num = (v, fallback = 0) => (Number.isFinite(v) ? v : fallback);
 const colorCss = (c) => '#' + c.toString(16).padStart(6, '0');
+const styleColor = (style) => STYLE_COLORS[style] || 0xffffff;
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 // Ajustes de administrador por jugador. Los límites son deliberadamente
@@ -285,6 +287,7 @@ export function createGame(wss, options = {}) {
         const p = client.player;
         if (!p || !p.alive || state.phase !== 'match') return;
         if (p.swimming) return;
+        if (p.rootUntil > state.matchTime) return;
         if (p.jumpY > 0.01) return;
         const tune = adminTune(p);
         if (tune.jumpHeight <= 0) return;
@@ -334,7 +337,7 @@ export function createGame(wss, options = {}) {
         const p = client.player;
         if (!p) return;
         const slot = msg.slot === 1 ? 1 : 0;
-        const ability = msg.ability === 1 ? 1 : 0;
+        const ability = Math.max(0, Math.min(3, Number(msg.ability) | 0));
         castAbility(p, slot, ability, num(msg.ax, p.aimX), num(msg.az, p.aimZ));
         break;
       }
@@ -469,13 +472,9 @@ export function createGame(wss, options = {}) {
       place: 0,
       slots: [null, null],
       active: 0,
-      cds: {
-        fire: [0, 0],
-        water: [0, 0],
-        wind: [0, 0],
-        earth: [0, 0],
-      },
+      cds: Object.fromEntries(ELEMENT_KEYS.map((key) => [key, [0, 0, 0, 0]])),
       comboCd: 0,
+      rootUntil: 0,
       slowUntil: 0,
       slowFactor: 0.55,
       lastDamageAt: -99,
@@ -662,7 +661,8 @@ export function createGame(wss, options = {}) {
 
   function applyPickup(p, pickup) {
     if (pickup.kind === 'heal') {
-      p.hp = Math.min(MAX_HP, p.hp + 28);
+      const bonus = hasElement(p, 'ice') ? 6 : 0;
+      p.hp = Math.min(MAX_HP, p.hp + 28 + bonus);
       state.fx.push({ k: 'heal', x: pickup.x, z: pickup.z, i: p.id });
       return;
     }
@@ -676,6 +676,12 @@ export function createGame(wss, options = {}) {
     p.active = slot;
     if (pickup.element === 'earth') {
       p.shield = Math.min(70, p.shield + 30);
+    }
+    if (pickup.element === 'dark') {
+      p.shield = Math.min(70, p.shield + 15);
+    }
+    if (hasElement(p, 'nature')) {
+      p.hp = Math.min(MAX_HP, p.hp + 5);
     }
     state.fx.push({
       k: 'pickup',
@@ -715,13 +721,365 @@ export function createGame(wss, options = {}) {
     return { x: p.x + dx * dist, z: p.z + dz * dist, dx, dz, dist };
   }
 
+  function applyRoot(target, duration) {
+    if (!target.alive) return;
+    target.rootUntil = Math.max(target.rootUntil, state.matchTime + duration);
+  }
+
+  // Cadena de rayos: salta de un enemigo al más cercano que quede, perdiendo
+  // fuerza en cada salto. El cliente dibuja las líneas con `pts`.
+  function chainBolt(source, x, z, count, range, dmg, mult, falloff = 0.85) {
+    let fromX = x;
+    let fromZ = z;
+    const hit = new Set([source.id]);
+    const points = [{ x: r1(x), z: r1(z) }];
+    let current = dmg;
+    for (let i = 0; i < count; i++) {
+      let best = null;
+      let bestDist = range;
+      for (const target of state.players) {
+        if (!target.alive || hit.has(target.id)) continue;
+        const d = Math.hypot(target.x - fromX, target.z - fromZ);
+        if (d < bestDist) {
+          bestDist = d;
+          best = target;
+        }
+      }
+      if (!best) break;
+      hit.add(best.id);
+      applyDamage(best, current * mult, source);
+      points.push({ x: r1(best.x), z: r1(best.z) });
+      fromX = best.x;
+      fromZ = best.z;
+      current *= falloff;
+    }
+    if (points.length > 1) state.fx.push({ k: 'chain', pts: points });
+  }
+
+  function areaDamage(source, x, z, radius, dmg, mult, options = {}) {
+    for (const target of state.players) {
+      if (!target.alive || target.id === source.id) continue;
+      if (Math.hypot(target.x - x, target.z - z) > radius) continue;
+      applyDamage(target, dmg * mult, source);
+      if (options.slow) applySlow(target, options.slow.factor, options.slow.duration);
+      if (options.root) applyRoot(target, typeof options.root === 'number' ? options.root : 0.6);
+      if (options.knock) {
+        const angle = Math.atan2(target.z - z, target.x - x);
+        shove(target, Math.cos(angle), Math.sin(angle), options.knock);
+      }
+    }
+  }
+
+  function moveDash(p, aim, distance) {
+    const radius = adminTune(p).radius;
+    const from = { x: p.x, z: p.z };
+    const steps = Math.max(1, Math.ceil(distance / 8));
+    const stepX = (aim.dx * distance) / steps;
+    const stepZ = (aim.dz * distance) / steps;
+    for (let i = 0; i < steps; i++) {
+      const res = moveWithCollision(state.world, p.x, p.z, stepX, stepZ, radius);
+      const moved = Math.hypot(res.x - p.x, res.z - p.z);
+      p.x = res.x;
+      p.z = res.z;
+      if (moved < Math.hypot(stepX, stepZ) * 0.5) break;
+    }
+    p.prevX = p.x;
+    p.prevZ = p.z;
+    p.mvX = 0;
+    p.mvZ = 0;
+    return from;
+  }
+
+  // Las zonas son la pieza común de casi todo el grimario: muros, olas,
+  // remolinos, prisiones, campos, árboles y géiseres comparten la misma
+  // entidad y el cliente elige la silueta por `style` y `type`.
+  function castZone(p, fx, aim, mult, tune) {
+    const scale = tune.projSize;
+    const life = (fx.life || 6) * tune.duration;
+    const radius = (fx.r || 110) * scale;
+    const base = {
+      id: state.nextEntityId++,
+      x: aim.x,
+      z: aim.z,
+      dx: aim.dx,
+      dz: aim.dz,
+      life,
+      maxLife: life,
+      owner: p.id,
+      style: fx.style || 'earth',
+      r: radius,
+      dps: (fx.dps || 0) * mult,
+      slowFactor: fx.slow ? fx.slow.factor : 0,
+      slowDuration: fx.slow ? fx.slow.duration : 0,
+      root: fx.root ? (typeof fx.root === 'number' ? fx.root : 0.4) : 0,
+      blind: fx.blind ? 1 : 0,
+      strikeTimer: fx.strike || 0.5,
+      maxR: fx.grow ? radius + fx.grow * scale : radius,
+      grow: fx.grow ? fx.grow * scale : 0,
+    };
+
+    switch (fx.type) {
+      case 'meteors': {
+        const count = Math.max(1, fx.count || 3);
+        for (let i = 0; i < count; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const offset = Math.random() * (fx.spread || 90) * scale;
+          const delay = (fx.delay || 0.6) * (0.7 + i * 0.32);
+          state.zones.push({
+            ...base,
+            id: state.nextEntityId++,
+            type: 'meteor',
+            style: 'fire',
+            x: aim.x + Math.cos(angle) * offset,
+            z: aim.z + Math.sin(angle) * offset,
+            r: (fx.r || 160) * 0.55 * scale,
+            delay,
+            life: delay + 1.3 * tune.duration,
+            maxLife: delay + 1.3 * tune.duration,
+            dmg: (fx.dmg || 20) * mult,
+            dps: 0,
+          });
+        }
+        break;
+      }
+      case 'wall':
+        state.zones.push({
+          ...base,
+          type: 'wall',
+          width: (fx.width || 170) * scale,
+          dps: base.dps || (fx.dps || 10) * mult,
+        });
+        break;
+      case 'wave':
+        state.zones.push({
+          ...base,
+          type: 'wave',
+          x: p.x + aim.dx * 24,
+          z: p.z + aim.dz * 24,
+          width: (fx.width || 220) * scale,
+          speed: (fx.speed || 230) * tune.projSpeed,
+          dmg: (fx.dmg || 14) * mult,
+          knock: fx.knock || 0,
+          life: 3 * tune.duration,
+          maxLife: 3 * tune.duration,
+          dps: 0,
+          hit: new Set(),
+        });
+        break;
+      case 'tornado':
+        state.zones.push({
+          ...base,
+          type: 'tornado',
+          pull: (fx.pull || 240) * tune.projSpeed,
+          speed: (fx.speed || 24) * tune.projSpeed,
+          dps: base.dps,
+          strikeTimer: fx.strike || 0.4,
+        });
+        break;
+      case 'spikes':
+        state.zones.push({
+          ...base,
+          type: 'spikes',
+          delay: fx.delay || 0.35,
+          dmg: (fx.dmg || 22) * mult,
+        });
+        break;
+      case 'prison':
+        state.zones.push({ ...base, type: 'prison', root: 0.4, dps: base.dps });
+        break;
+      case 'geyser':
+        state.zones.push({
+          ...base,
+          type: 'geyser',
+          delay: fx.delay || 0.35,
+          interval: fx.interval || 0.9,
+          dmg: (fx.dmg || 14) * mult,
+          dps: 0,
+        });
+        break;
+      case 'tree':
+        state.zones.push({ ...base, type: 'tree', cover: 1, dps: 0 });
+        break;
+      case 'plasma':
+        state.zones.push({
+          ...base,
+          type: 'plasma',
+          delay: fx.delay || 0.5,
+          dmg: (fx.dmg || 28) * mult,
+          chain: fx.chain || 3,
+          dps: 0,
+        });
+        break;
+      default:
+        state.zones.push({ ...base, type: fx.type || 'field' });
+        break;
+    }
+  }
+
+  // Intérprete único de las recetas del grimario. Sirve igual para una
+  // habilidad suelta y para una fusión.
+  function castEffect(p, fx, aim, mult, tune) {
+    const speed = tune.projSpeed;
+    const duration = tune.duration;
+    const scale = tune.projSize;
+    switch (fx.kind) {
+      case 'projectile': {
+        spawnProjectile({
+          kind: fx.v,
+          owner: p.id,
+          x: p.x + aim.dx * 3,
+          z: p.z + aim.dz * 3,
+          dx: aim.dx,
+          dz: aim.dz,
+          speed: (fx.speed || 500) * speed,
+          life: (fx.life || 1.5) * duration,
+          dmg: (fx.dmg || 10) * mult,
+          radius: (fx.radius || 3) * scale,
+          splash: (fx.splash || 0) * scale,
+          splashDmg: (fx.splashDmg || 0) * mult,
+          pierce: !!fx.pierce,
+          slow: fx.slow || null,
+          knock: fx.knock || 0,
+          homing: fx.homing || 0,
+          prison: fx.prison || null,
+          leavesLava: !!fx.leavesLava,
+          trail: fx.trail || null,
+          ...(fx.pierce ? { hit: new Set() } : {}),
+        });
+        break;
+      }
+      case 'volley': {
+        const baseAngle = Math.atan2(aim.dz, aim.dx);
+        const count = Math.max(1, fx.count | 0);
+        for (let i = 0; i < count; i++) {
+          const angle = baseAngle + (i - (count - 1) / 2) * (fx.spread || 0.1);
+          spawnProjectile({
+            kind: fx.v,
+            owner: p.id,
+            x: p.x + Math.cos(angle) * 3,
+            z: p.z + Math.sin(angle) * 3,
+            dx: Math.cos(angle),
+            dz: Math.sin(angle),
+            speed: (fx.speed || 500) * speed,
+            life: (fx.life || 1.4) * duration,
+            delay: (fx.delay || 0) * i,
+            dmg: (fx.dmg || 10) * mult,
+            radius: (fx.radius || 3) * scale,
+            knock: fx.knock || 0,
+            pierce: !!fx.pierce,
+            slow: fx.slow || null,
+            homing: fx.homing || 0,
+            ...(fx.pierce ? { hit: new Set() } : {}),
+          });
+        }
+        break;
+      }
+      case 'zone':
+        castZone(p, fx, aim, mult, tune);
+        break;
+      case 'burst': {
+        const x = fx.atAim ? aim.x : p.x;
+        const z = fx.atAim ? aim.z : p.z;
+        const radius = (fx.radius || 150) * scale;
+        state.fx.push({ k: 'boom', x: r1(x), z: r1(z), r: radius, c: colorCss(styleColor(fx.style)) });
+        areaDamage(p, x, z, radius, fx.dmg || 15, mult, fx);
+        if (fx.chain) chainBolt(p, x, z, fx.chain, 190, (fx.dmg || 15) * 0.6, mult);
+        break;
+      }
+      case 'beam': {
+        const length = Math.max(60, aim.dist || fx.length || 480);
+        const endX = p.x + aim.dx * length;
+        const endZ = p.z + aim.dz * length;
+        const width = (fx.width || 14) * scale;
+        for (const target of state.players) {
+          if (!target.alive || target.id === p.id) continue;
+          const rx = target.x - p.x;
+          const rz = target.z - p.z;
+          const along = rx * aim.dx + rz * aim.dz;
+          if (along < 0 || along > length) continue;
+          if (Math.abs(-rx * aim.dz + rz * aim.dx) > width + PLAYER_RADIUS) continue;
+          applyDamage(target, (fx.dmg || 12) * mult, p);
+          if (fx.slow) applySlow(target, fx.slow.factor, fx.slow.duration);
+        }
+        state.fx.push({
+          k: 'beam',
+          x: r1(p.x),
+          z: r1(p.z),
+          x2: r1(endX),
+          z2: r1(endZ),
+          c: colorCss(styleColor(fx.style)),
+        });
+        if (fx.chain) chainBolt(p, endX, endZ, fx.chain, fx.chainRange || 190, (fx.dmg || 12) * 0.7, mult, fx.falloff || 0.85);
+        break;
+      }
+      case 'dash': {
+        const distance = (fx.distance || 250) * Math.min(1.7, speed);
+        const from = moveDash(p, aim, distance);
+        state.fx.push({
+          k: 'dash',
+          x: r1(from.x),
+          z: r1(from.z),
+          x2: r1(p.x),
+          z2: r1(p.z),
+          c: colorCss(styleColor(fx.style)),
+        });
+        if (fx.burst) {
+          state.fx.push({ k: 'boom', x: r1(p.x), z: r1(p.z), r: fx.burst.r || 120, c: colorCss(styleColor(fx.style)) });
+          areaDamage(p, p.x, p.z, fx.burst.r || 120, fx.burst.dmg || 12, mult, fx.burst);
+        }
+        break;
+      }
+      case 'leap': {
+        const distance = (fx.distance || 180) * Math.min(1.7, speed);
+        const from = moveDash(p, aim, distance);
+        const t = Math.max(0.1, tune.jumpDuration);
+        const gravity = (8 * Math.max(1, tune.jumpHeight)) / (t * t);
+        p.jumpY = 0.05;
+        p.jumpV = Math.sqrt(2 * gravity * Math.max(1, fx.height || 4));
+        state.fx.push({
+          k: 'dash',
+          x: r1(from.x),
+          z: r1(from.z),
+          x2: r1(p.x),
+          z2: r1(p.z),
+          c: colorCss(styleColor(fx.style)),
+        });
+        break;
+      }
+      case 'summon': {
+        const summonLife = (fx.life || 10) * duration;
+        state.zones.push({
+          id: state.nextEntityId++,
+          type: 'summon',
+          mob: fx.mob,
+          style: fx.mob === 'clone' ? 'dark' : fx.mob === 'guardian' ? 'guardian' : 'earth',
+          x: aim.x,
+          z: aim.z,
+          r: (fx.r || 130) * scale,
+          life: summonLife,
+          maxLife: summonLife,
+          dps: (fx.dps || 0) * mult,
+          speed: (fx.speed || 110) * speed,
+          slow: fx.slow || 0.75,
+          owner: p.id,
+          targetId: 0,
+          strikeTimer: 0.4,
+        });
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
   function castAbility(p, slotIdx, abilityIdx, ax, az) {
     if (state.phase !== 'match' || !p || !p.alive) return false;
     if (slotIdx !== 0 && slotIdx !== 1) return false;
-    if (abilityIdx !== 0 && abilityIdx !== 1) return false;
+    if (abilityIdx < 0 || abilityIdx > 3) return false;
     const tune = adminTune(p);
     const slot = p.slots[slotIdx];
     if (!slot) return false;
+    if (p.rootUntil > state.matchTime) return false;
     const element = slot.element;
     const meta = ELEMENTS[element]?.abilities[abilityIdx];
     if (!meta) return false;
@@ -730,7 +1088,8 @@ export function createGame(wss, options = {}) {
     if (p.mana < manaCost) return false;
 
     p.mana -= manaCost;
-    p.cds[element][abilityIdx] = meta.cd * tune.cooldown;
+    const cdMult = hasElement(p, 'lightning') ? 0.92 : 1;
+    p.cds[element][abilityIdx] = meta.cd * tune.cooldown * cdMult;
     p.active = slotIdx;
 
     const aim = aimFrom(p, ax, az, meta.range * tune.range);
@@ -740,6 +1099,13 @@ export function createGame(wss, options = {}) {
 
     const mult = rarityPower(slot.rarity) * (hasElement(p, 'fire') ? 1.12 : 1) * tune.power;
     state.fx.push({ k: 'cast', x: p.x, z: p.z, el: element, ab: meta.id, i: p.id, c: colorCss(ELEMENTS[element].color) });
+
+    // Todas las habilidades del grimario llevan su receta en `meta.fx`; el
+    // antiguo switch se conserva como red de seguridad para poderes viejos.
+    if (meta.fx) {
+      castEffect(p, meta.fx, aim, mult, tune);
+      return true;
+    }
 
     switch (meta.id) {
       case 'lavabolt':
@@ -889,6 +1255,7 @@ export function createGame(wss, options = {}) {
 
   function castCombo(p, ax, az) {
     if (state.phase !== 'match' || !p || !p.alive) return false;
+    if (p.rootUntil > state.matchTime) return false;
     const slotA = p.slots[0];
     const slotB = p.slots[1];
     if (!slotA || !slotB) return false;
@@ -907,6 +1274,11 @@ export function createGame(wss, options = {}) {
     const mult = (1 + (hasElement(p, 'fire') ? 0.12 : 0)) * tune.power;
 
     state.fx.push({ k: 'combo', x: aim.x, z: aim.z, id: combo.id, name: combo.name, i: p.id });
+
+    if (combo.fx) {
+      castEffect(p, combo.fx, aim, mult, tune);
+      return true;
+    }
 
     const zone = (extra) => {
       state.zones.push({
@@ -1130,7 +1502,10 @@ export function createGame(wss, options = {}) {
         p.jumpV = 0;
       }
       let speed = tune.walkSpeed;
-      if (p.swimming) speed *= SWIM_SPEED_MULT;
+      // Raíces, hielo y prisiones anulan el movimiento sin quitar el control
+      // de la cámara: el mago sigue pudiendo apuntar y lanzar.
+      if (p.rootUntil > s.matchTime) speed = 0;
+      else if (p.swimming) speed *= SWIM_SPEED_MULT;
       else {
         if (hasElement(p, 'wind')) speed *= 1.1;
         if (p.input.sprint && p.stamina > 2) speed *= tune.runMult;
@@ -1255,6 +1630,31 @@ export function createGame(wss, options = {}) {
         continue;
       }
       pr.life -= dt;
+      // Persecución suave: la llama abismal y los orbes sombríos corrigen el
+      // rumbo hacia el enemigo más cercano sin llegar a ser infalibles.
+      if (pr.homing) {
+        let target = null;
+        let best = 340;
+        for (const p of s.players) {
+          if (!p.alive || p.id === pr.owner) continue;
+          const d = Math.hypot(p.x - pr.x, p.z - pr.z);
+          if (d < best) {
+            best = d;
+            target = p;
+          }
+        }
+        if (target) {
+          const desired = Math.atan2(target.x - pr.x, target.z - pr.z);
+          const current = Math.atan2(pr.dx, pr.dz);
+          let diff = desired - current;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          const turn = Math.max(-dt * 2.4, Math.min(dt * 2.4, diff));
+          const angle = current + turn;
+          pr.dx = Math.sin(angle);
+          pr.dz = Math.cos(angle);
+        }
+      }
       const total = pr.speed * dt;
       const steps = Math.max(1, Math.ceil(total / 6));
       const stepX = pr.dx * (total / steps);
@@ -1274,6 +1674,16 @@ export function createGame(wss, options = {}) {
           impact = true;
           break;
         }
+        // Un árbol protector detiene los proyectiles: es cobertura real y no
+        // solo un adorno.
+        for (const zone of s.zones) {
+          if (zone.type !== 'tree' || !zone.cover) continue;
+          if (Math.hypot(pr.x - zone.x, pr.z - zone.z) < zone.r * 0.5) {
+            impact = true;
+            break;
+          }
+        }
+        if (impact) break;
         for (const p of s.players) {
           if (!p.alive || p.id === pr.owner) continue;
           if (Math.hypot(p.x - pr.x, p.z - pr.z) <= pr.radius + adminTune(p).radius) {
@@ -1344,7 +1754,58 @@ export function createGame(wss, options = {}) {
       case 'jet':
         state.fx.push({ k: 'splash', x: r1(pr.x), z: r1(pr.z) });
         break;
+      case 'fireball': {
+        const tune = owner ? adminTune(owner) : ADMIN_DEFAULT;
+        state.fx.push({ k: 'boom', x: r1(pr.x), z: r1(pr.z), r: 62, c: '#ff7b34' });
+        if (direct) applyDamage(direct, pr.dmg, owner);
+        for (const p of state.players) {
+          if (!p.alive || p.id === pr.owner || p === direct) continue;
+          if (Math.hypot(p.x - pr.x, p.z - pr.z) <= pr.splash) applyDamage(p, pr.splashDmg, owner);
+        }
+        const zoneLife = 5 * tune.duration;
+        state.zones.push({
+          id: state.nextEntityId++, type: 'lava', style: 'fire', x: pr.x, z: pr.z,
+          r: 34 * tune.projSize, life: zoneLife, maxLife: zoneLife, dps: 9 * tune.power, owner: pr.owner,
+        });
+        break;
+      }
+      case 'abyssflame': {
+        state.fx.push({ k: 'boom', x: r1(pr.x), z: r1(pr.z), r: 72, c: '#8a2bd6' });
+        if (direct) applyDamage(direct, pr.dmg, owner);
+        for (const p of state.players) {
+          if (!p.alive || p.id === pr.owner || p === direct) continue;
+          if (Math.hypot(p.x - pr.x, p.z - pr.z) <= pr.splash) applyDamage(p, pr.splashDmg, owner);
+        }
+        state.zones.push({
+          id: state.nextEntityId++, type: 'lava', style: 'dark', x: pr.x, z: pr.z,
+          r: 44, life: 5, maxLife: 5, dps: 10, owner: pr.owner,
+        });
+        break;
+      }
+      case 'waterprison': {
+        state.fx.push({ k: 'splash', x: r1(pr.x), z: r1(pr.z) });
+        const x = direct ? direct.x : pr.x;
+        const z = direct ? direct.z : pr.z;
+        if (direct) {
+          applyDamage(direct, pr.dmg, owner);
+          applyRoot(direct, 2.2);
+        }
+        state.zones.push({
+          id: state.nextEntityId++, type: 'prison', style: 'water', x, z, r: 58,
+          life: 2.4, maxLife: 2.4, root: 0.4, dps: 2, owner: pr.owner,
+        });
+        break;
+      }
       default:
+        if (direct) applyDamage(direct, pr.dmg, owner);
+        if (pr.knock && direct) shove(direct, pr.dx, pr.dz, pr.knock);
+        state.fx.push({
+          k: 'boom',
+          x: r1(pr.x),
+          z: r1(pr.z),
+          r: 34,
+          c: colorCss(styleColor(pr.trail || pr.kind)),
+        });
         break;
     }
   }
@@ -1355,6 +1816,8 @@ export function createGame(wss, options = {}) {
       const z = s.zones[i];
       z.life -= dt;
       const owner = getPlayer(z.owner);
+      // El incendio forestal se extiende solo hasta su radio máximo.
+      if (z.grow && z.r < z.maxR) z.r = Math.min(z.maxR, z.r + z.grow * 0.22 * dt);
 
       if (z.type === 'meteor') {
         z.delay -= dt;
@@ -1449,12 +1912,108 @@ export function createGame(wss, options = {}) {
         continue;
       }
 
-      // Zonas de área (lava, barro, vapor, tormenta, arena).
+      if (z.type === 'spikes') {
+        z.delay -= dt;
+        if (z.delay <= 0 && !z.struck) {
+          z.struck = true;
+          s.fx.push({ k: 'spikes', x: r1(z.x), z: r1(z.z), r: z.r, style: z.style, c: colorCss(styleColor(z.style)) });
+          areaDamage(owner || { id: 0 }, z.x, z.z, z.r, z.dmg, 1, {
+            slow: z.slowFactor ? { factor: z.slowFactor, duration: z.slowDuration } : null,
+            root: z.root || 0,
+          });
+        }
+        if (z.life <= 0) s.zones.splice(i, 1);
+        continue;
+      }
+
+      if (z.type === 'geyser') {
+        z.delay -= dt;
+        if (z.delay <= 0) {
+          z.strikeTimer -= dt;
+          if (z.strikeTimer <= 0) {
+            z.strikeTimer = z.interval || 0.9;
+            s.fx.push({ k: 'geyser', x: r1(z.x), z: r1(z.z), r: z.r, style: z.style, c: colorCss(styleColor(z.style)) });
+            for (const target of s.players) {
+              if (!target.alive || target.id === z.owner) continue;
+              if (Math.hypot(target.x - z.x, target.z - z.z) > z.r) continue;
+              applyDamage(target, z.dmg, owner);
+              applySlow(target, 0.82, 0.5);
+              const angle = Math.atan2(target.z - z.z, target.x - z.x);
+              shove(target, Math.cos(angle), Math.sin(angle), 26);
+            }
+          }
+        }
+        if (z.life <= 0) s.zones.splice(i, 1);
+        continue;
+      }
+
+      if (z.type === 'plasma') {
+        z.delay -= dt;
+        if (z.delay <= 0 && !z.struck) {
+          z.struck = true;
+          s.fx.push({ k: 'boom', x: r1(z.x), z: r1(z.z), r: z.r * 1.4, c: colorCss(styleColor('plasma')) });
+          areaDamage(owner || { id: 0 }, z.x, z.z, z.r * 1.4, z.dmg, 1, { slow: { factor: 0.7, duration: 1.2 } });
+          chainBolt(owner || { id: 0 }, z.x, z.z, z.chain || 3, 210, z.dmg * 0.5, 1);
+        }
+        if (z.life <= 0) s.zones.splice(i, 1);
+        continue;
+      }
+
+      if (z.type === 'summon') {
+        z.strikeTimer -= dt;
+        let target = z.targetId ? getPlayer(z.targetId) : null;
+        if (!target || !target.alive) {
+          let best = null;
+          let bestDist = 820;
+          for (const other of s.players) {
+            if (!other.alive || other.id === z.owner) continue;
+            const d = Math.hypot(other.x - z.x, other.z - z.z);
+            if (d < bestDist) {
+              bestDist = d;
+              best = other;
+            }
+          }
+          target = best;
+          z.targetId = best ? best.id : 0;
+        }
+        if (target) {
+          const dx = target.x - z.x;
+          const dz = target.z - z.z;
+          const d = Math.hypot(dx, dz) || 1;
+          if (d > 34) {
+            const step = Math.min(z.speed * dt, d - 28);
+            const res = moveWithCollision(s.world, z.x, z.z, (dx / d) * step, (dz / d) * step, 8);
+            z.x = res.x;
+            z.z = res.z;
+          } else if (z.strikeTimer <= 0 && z.dps > 0) {
+            z.strikeTimer = 0.65;
+            applyDamage(target, z.dps, owner);
+            applySlow(target, 0.8, 0.5);
+            s.fx.push({ k: 'summonHit', x: r1(target.x), z: r1(target.z), style: z.style, mob: z.mob });
+          }
+        }
+        if (z.mob === 'clone') {
+          for (const other of s.players) {
+            if (!other.alive || other.id === z.owner) continue;
+            if (Math.hypot(other.x - z.x, other.z - z.z) <= z.r) applySlow(other, z.slow || 0.75, 0.4);
+          }
+        }
+        if (z.life <= 0) s.zones.splice(i, 1);
+        continue;
+      }
+
+      if (z.type === 'tree') {
+        if (z.life <= 0) s.zones.splice(i, 1);
+        continue;
+      }
+
+      // Zonas de área (lava, barro, vapor, tormenta, arena, campos…).
       for (const p of s.players) {
         if (!p.alive || p.id === z.owner) continue;
         if (Math.hypot(p.x - z.x, p.z - z.z) > z.r) continue;
         if (z.dps) applyDamage(p, z.dps * dt, owner, { silent: true });
         if (z.slowFactor) applySlow(p, z.slowFactor, 0.35);
+        if (z.root) applyRoot(p, Math.max(0.4, z.root));
       }
       if (z.type === 'storm' || z.type === 'sandstorm' || z.type === 'steam') {
         z.strikeTimer = (z.strikeTimer || 0) - dt;
@@ -1501,6 +2060,7 @@ export function createGame(wss, options = {}) {
         j: r2(p.jumpY),
         sw: p.swimming ? 1 : 0,
         sf: p.slowUntil > s.matchTime ? r2(p.slowFactor) : 0,
+        rt: p.rootUntil > s.matchTime ? 1 : 0,
         place: p.place,
       })),
       projs: s.projectiles.map((pr) => ({
@@ -1526,6 +2086,7 @@ export function createGame(wss, options = {}) {
         dz: r2(z.dz || 0),
         w: r1(z.width || 0),
         d: r1(z.delay || 0),
+        mob: z.mob || null,
         o: z.owner,
       })),
       fx: s.fx,

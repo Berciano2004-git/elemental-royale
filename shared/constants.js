@@ -1,5 +1,9 @@
 // Constantes compartidas entre servidor y cliente.
 
+import { COMBOS, ELEMENTS, ELEMENT_KEYS, comboFor } from './spellbook.js';
+
+export { COMBOS, ELEMENTS, ELEMENT_KEYS, comboFor };
+
 export const GAME_NAME = 'Elemental Royale';
 export const WORLD_SIZE = 2400;
 export const HALF_WORLD = WORLD_SIZE / 2;
@@ -30,168 +34,11 @@ export const STORM_PHASES = [
   { wait: 8, shrink: 8, radius: 45, dps: 24 },
 ];
 
-export const ELEMENT_KEYS = ['fire', 'water', 'wind', 'earth'];
-
-export const ELEMENTS = {
-  fire: {
-    name: 'Fuego',
-    color: 0xff6b2c,
-    dark: 0x8a2b0c,
-    passive: '+12% de daño elemental',
-    abilities: [
-      {
-        id: 'lavabolt',
-        name: 'Orbe de lava',
-        desc: 'Proyectil incandescente que estalla al impactar y deja brasas ardientes en el suelo.',
-        cd: 1.35,
-        mana: 12,
-        range: 620,
-      },
-      {
-        id: 'flamewall',
-        name: 'Muro de llamas',
-        desc: 'Una cortina de fuego que corta el paso y quema a quien la cruza durante siete segundos.',
-        cd: 8,
-        mana: 22,
-        range: 460,
-      },
-    ],
-  },
-  water: {
-    name: 'Agua',
-    color: 0x3fb6ff,
-    dark: 0x0d4f78,
-    passive: 'Regeneras 1 de vida por segundo',
-    abilities: [
-      {
-        id: 'jet',
-        name: 'Chorro a presión',
-        desc: 'Atraviesa en línea recta a todos los que pilla y los deja pesados y lentos.',
-        cd: 1.0,
-        mana: 9,
-        range: 500,
-      },
-      {
-        id: 'tsunami',
-        name: 'Ola de marea',
-        desc: 'Una ola que avanza empujando y golpeando a todo el que alcanza.',
-        cd: 9,
-        mana: 26,
-        range: 600,
-      },
-    ],
-  },
-  wind: {
-    name: 'Viento',
-    color: 0x8ef0c0,
-    dark: 0x1d6b52,
-    passive: 'Te mueves un 10% más rápido',
-    abilities: [
-      {
-        id: 'gust',
-        name: 'Filo de viento',
-        desc: 'Media luna de aire que corta a varios rivales seguidos y los aparta de su sitio.',
-        cd: 0.95,
-        mana: 8,
-        range: 560,
-      },
-      {
-        id: 'tornado',
-        name: 'Vórtice',
-        desc: 'Un remolino que arrastra hacia el centro y desgarra a quien queda dentro.',
-        cd: 9,
-        mana: 25,
-        range: 520,
-      },
-    ],
-  },
-  earth: {
-    name: 'Tierra',
-    color: 0xc08a4a,
-    dark: 0x5b3a1d,
-    passive: 'Ganas 30 de escudo al recoger el poder',
-    abilities: [
-      {
-        id: 'rocks',
-        name: 'Lluvia de rocas',
-        desc: 'Tres peñascos salen en abanico y apartan de un empujón a quien golpean.',
-        cd: 3.2,
-        mana: 16,
-        range: 580,
-      },
-      {
-        id: 'quake',
-        name: 'Sismo',
-        desc: 'Sacude el suelo alrededor del mago: daña y frena a todos los cercanos.',
-        cd: 8,
-        mana: 20,
-        range: 0,
-      },
-    ],
-  },
-};
+export const ABILITY_COUNT = 4;
 
 export function elementCss(key) {
-  const c = ELEMENTS[key].color;
-  return '#' + c.toString(16).padStart(6, '0');
-}
-
-// Combinaciones elementales. Se desbloquean al llevar los dos elementos.
-export const COMBOS = {
-  'earth+fire': {
-    id: 'meteor',
-    name: 'Meteorito',
-    desc: 'Un meteorito cae sobre el objetivo y abre un cráter ardiente.',
-    cd: 22,
-    mana: 40,
-    range: 700,
-  },
-  'water+wind': {
-    id: 'thunderstorm',
-    name: 'Tormenta',
-    desc: 'Una nube de tormenta descarga rayos y deja la zona empapada y electrizada.',
-    cd: 24,
-    mana: 42,
-    range: 640,
-  },
-  'earth+water': {
-    id: 'mud',
-    name: 'Pantano de barro',
-    desc: 'Un cenagal que atrapa los pies y ralentiza a quien entra.',
-    cd: 20,
-    mana: 32,
-    range: 600,
-  },
-  'fire+wind': {
-    id: 'firestorm',
-    name: 'Torbellino ígneo',
-    desc: 'Un tornado en llamas que arrastra hacia el centro y quema sin piedad.',
-    cd: 23,
-    mana: 40,
-    range: 600,
-  },
-  'fire+water': {
-    id: 'steam',
-    name: 'Nube de vapor',
-    desc: 'Vapor denso que frena a quien se mete dentro: apenas hace daño, pero deja a los rivales lentos.',
-    cd: 18,
-    mana: 30,
-    range: 600,
-  },
-  'earth+wind': {
-    id: 'sandstorm',
-    name: 'Tormenta de arena',
-    desc: 'Una tempestad de polvo que azota, frena y desgasta una amplia zona.',
-    cd: 21,
-    mana: 36,
-    range: 620,
-  },
-};
-
-export function comboFor(elementA, elementB) {
-  if (!elementA || !elementB || elementA === elementB) return null;
-  const key = [elementA, elementB].sort().join('+');
-  return COMBOS[key] || null;
+  const meta = ELEMENTS[key] || ELEMENTS.fire;
+  return '#' + meta.color.toString(16).padStart(6, '0');
 }
 
 export const RARITIES = {

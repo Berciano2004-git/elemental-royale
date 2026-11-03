@@ -9,7 +9,11 @@ import {
   comboFor,
 } from '../shared/constants.js';
 
-const ICONS = { fire: '🔥', water: '💧', wind: '🌀', earth: '🪨' };
+const ICONS = {
+  fire: '🔥', water: '💧', wind: '🌀', earth: '🪨',
+  lightning: '⚡', ice: '❄️', nature: '🌿', dark: '🌑',
+};
+const ABILITY_KEYS = ['Clic izq', 'Clic der', '4', '5'];
 const REGION_NAMES = {
   forest: 'Bosque de Elda',
   grass: 'Praderas Verdes',
@@ -238,10 +242,13 @@ export class HUD {
     if (activeSlot) {
       const meta = ELEMENTS[activeSlot.e];
       const abilities = meta.abilities;
-      const cds = self.cd[self.act] || [0, 0];
-      this.abilityHints.innerHTML =
-        `<span><b>Clic izq</b> ${abilities[0].name}${cds[0] > 0 ? ` · ${Math.ceil(cds[0])}s` : ''}</span>` +
-        `<span><b>Clic der</b> ${abilities[1].name}${cds[1] > 0 ? ` · ${Math.ceil(cds[1])}s` : ''}</span>`;
+      const cds = self.cd[self.act] || [0, 0, 0, 0];
+      this.abilityHints.innerHTML = abilities
+        .map((ability, index) => {
+          const remaining = cds[index] > 0 ? ` · ${Math.ceil(cds[index])}s` : '';
+          return `<span><b>${ABILITY_KEYS[index]}</b> ${ability.name}${remaining}</span>`;
+        })
+        .join('');
     } else {
       this.abilityHints.innerHTML = '<span>Busca cristales de poder por la isla</span>';
     }
@@ -267,10 +274,10 @@ export class HUD {
       el.querySelector('.ps-icon').textContent = ICONS[slot.e];
       el.querySelector('.ps-name').textContent = meta.name;
       const rarity = RARITIES[slot.r] || RARITIES.common;
-      el.querySelector('.ps-sub').textContent = `${rarity.name} · ${meta.abilities[0].name}`;
+      el.querySelector('.ps-sub').textContent = `${rarity.name} · ${meta.abilities.length} hechizos`;
     }
     // La cuenta atrás solo se pinta cuando cambia el segundo entero.
-    const remaining = Math.ceil(Math.max(cd?.[0] || 0, cd?.[1] || 0));
+    const remaining = Math.ceil(Math.max(0, ...(Array.isArray(cd) ? cd : [0])));
     if (this.slotCdCache[index] !== remaining) {
       this.slotCdCache[index] = remaining;
       const overlay = el.querySelector('.ps-cd');

@@ -2,23 +2,64 @@
 
 import * as THREE from 'three';
 import { makeGlowTexture } from './world.js';
+import { STYLE_COLORS } from '../../shared/palette.js';
 
 const COLORS = {
   fire: 0xff7a33,
   water: 0x53c9ff,
   wind: 0xa8ffe0,
   earth: 0xd2a05f,
+  lightning: 0x9d8bff,
+  ice: 0x7fe6ff,
+  nature: 0x62d97a,
+  dark: 0xb06bff,
   storm: 0xb48cff,
   sand: 0xe8c98a,
   steam: 0xd8f2ff,
   mud: 0x7a5a3a,
+  plasma: 0xff7bf0,
+  magma: 0xff4d16,
   heal: 0x7bffcf,
   hit: 0xff6b7d,
 };
 
 function elementColor(key, fallback = 0xffffff) {
-  return COLORS[key] || fallback;
+  return COLORS[key] || STYLE_COLORS[key] || fallback;
 }
+
+function styleColor(key, fallback = 0xffffff) {
+  return COLORS[key] || STYLE_COLORS[key] || fallback;
+}
+
+// Segundo tono de cada estilo: da volumen a los materiales sin multiplicar
+// mallas. Las fusiones se distinguen por su pareja de colores.
+const ACCENTS = {
+  fire: 0xffd08a, water: 0xbdf0ff, wind: 0xffffff, earth: 0xf0d6a8,
+  lightning: 0xe6e0ff, ice: 0xffffff, nature: 0xc8ff9a, dark: 0x5a1a9a,
+  steam: 0xffffff, magma: 0xffc14d, plasma: 0xffffff, thermal: 0xffffff,
+  wildfire: 0xffd27a, abyssflame: 0xff8a3c, icestorm: 0xe8ffff, mud: 0xa8875a,
+  overload: 0xd8f4ff, glacierwave: 0xffffff, growth: 0xb8ff8a, abyss: 0x8a5cff,
+  sandstorm: 0xfff0c8, hurricane: 0xe0f8ff, blizzard: 0xffffff, pollen: 0xf0ff9a,
+  spectral: 0xffffff, earthquake: 0xf3d08a, crystal: 0xffffff, guardian: 0xd8ff8a,
+  abyssalprison: 0xb06bff, polar: 0xffffff, vital: 0xd8ffb8, shadowbolt: 0x6a2bd6,
+  glacial: 0xffffff, frostmist: 0xe0d8ff, cursed: 0xb06bff, poison: 0xd8ff9a,
+};
+
+function accentColor(key, fallback = 0xffffff) {
+  return ACCENTS[key] || fallback;
+}
+
+const PROJECTILE_COLORS = {
+  fireball: 0xff7b34,
+  abyssflame: 0x9a3bff,
+  jet: 0x53c9ff,
+  gust: 0xa8ffe0,
+  windblade: 0xd6fff2,
+  rock: 0xc08a4a,
+  icelance: 0xbfefff,
+  shadowbolt: 0x9a6bff,
+  waterprison: 0x63d9ff,
+};
 
 // ------------------------------------------------------------------ partículas
 
@@ -370,6 +411,24 @@ export class EffectsView {
     this.rings.push({ mesh, material, life, maxLife: life, maxRadius, width });
   }
 
+  // Línea aditiva para rayos, cadenas y estelas instantáneas.
+  addLine(points, color, life = 0.22) {
+    const geometry = new THREE.BufferGeometry().setFromPoints(
+      points.map((p) => new THREE.Vector3(p.x, this.ground(p.x, p.z) + 2.4, p.z))
+    );
+    const material = new THREE.LineBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    const line = new THREE.Line(geometry, material);
+    this.group.add(line);
+    this.bolts.push({ line, material, life, maxLife: life });
+  }
+
   addFlash(x, z, color, radius, life = 0.35) {
     const material = new THREE.MeshBasicMaterial({
       color,
@@ -396,7 +455,14 @@ export class EffectsView {
           // sube, el agua salpica, el viento gira y la tierra se abre.
           this.particles.burst(fx.x, y, fx.z, color, 7, { speed: 3.5, up: 2.5, life: 0.5, size: 3.5 });
           this.addRing(fx.x, fx.z, color, fx.el === 'earth' ? 46 : 34, 0.3);
-          const gravity = fx.el === 'fire' ? -3 : fx.el === 'water' ? 11 : fx.el === 'wind' ? -1 : 9;
+          const gravity =
+            fx.el === 'fire' ? -3
+              : fx.el === 'water' ? 11
+                : fx.el === 'wind' ? -1
+                  : fx.el === 'lightning' ? -4
+                    : fx.el === 'ice' ? 7
+                      : fx.el === 'nature' ? 2
+                        : fx.el === 'dark' ? -2 : 9;
           const spread = fx.el === 'wind' ? 9 : 4.5;
           for (let i = 0; i < 6; i++) {
             const angle = Math.random() * Math.PI * 2;
@@ -466,6 +532,34 @@ export class EffectsView {
             { vx: (Math.random() - 0.5) * 4, vy: 3 + Math.random() * 3, vz: (Math.random() - 0.5) * 4, life: 0.6, size: 4 }
           );
           break;
+        case 'beam':
+          this.addLine([{ x: fx.x, z: fx.z }, { x: fx.x2, z: fx.z2 }], color, 0.28);
+          this.addFlash(fx.x2, fx.z2, color, 28, 0.22);
+          this.particles.burst(fx.x2, this.ground(fx.x2, fx.z2), fx.z2, color, 10, { speed: 10, up: 6, life: 0.5, size: 3.6 });
+          break;
+        case 'chain': {
+          const points = fx.pts || [];
+          for (let i = 1; i < points.length; i++) this.addLine([points[i - 1], points[i]], 0xe6e0ff, 0.26);
+          const last = points[points.length - 1];
+          if (last) this.addFlash(last.x, last.z, 0xc8bcff, 32, 0.2);
+          break;
+        }
+        case 'dash':
+          this.addRing(fx.x, fx.z, color, 40, 0.4);
+          this.addRing(fx.x2, fx.z2, color, 55, 0.5);
+          this.particles.burst(fx.x2, this.ground(fx.x2, fx.z2), fx.z2, color, 14, { speed: 8, up: 6, life: 0.6, size: 4 });
+          break;
+        case 'spikes':
+          this.addRing(fx.x, fx.z, color, fx.r || 150, 0.55);
+          this.particles.burst(fx.x, this.ground(fx.x, fx.z), fx.z, color, 18, { speed: 12, up: 8, life: 0.8, size: 5 });
+          break;
+        case 'geyser':
+          this.addRing(fx.x, fx.z, 0x9fe8ff, fx.r || 90, 0.5);
+          this.particles.burst(fx.x, this.ground(fx.x, fx.z), fx.z, 0xbdf0ff, 20, { speed: 5, up: 16, life: 1.0, size: 5, gravity: 18 });
+          break;
+        case 'summonHit':
+          this.particles.burst(fx.x, this.ground(fx.x, fx.z), fx.z, color, 10, { speed: 6, up: 5, life: 0.5, size: 4 });
+          break;
         default:
           break;
       }
@@ -475,7 +569,7 @@ export class EffectsView {
   // -------------------------------------------------------------- proyectiles
 
   createProjectile(p) {
-    const color = p.k === 'lavabolt' ? COLORS.fire : p.k === 'jet' ? COLORS.water : p.k === 'gust' ? COLORS.wind : COLORS.earth;
+    const color = PROJECTILE_COLORS[p.k] || COLORS.fire;
     const group = new THREE.Group();
     let material;
     if (p.k === 'rock') {
@@ -486,7 +580,7 @@ export class EffectsView {
       const dust = new THREE.Sprite(glowMaterial(0x8d7a5d));
       dust.scale.setScalar(4);
       group.add(dust);
-    } else if (p.k === 'gust') {
+    } else if (p.k === 'gust' || p.k === 'windblade') {
       // Media luna de aire: un anillo abierto y plano que gira al volar.
       material = new THREE.MeshBasicMaterial({
         color,
@@ -503,6 +597,32 @@ export class EffectsView {
       const halo = new THREE.Sprite(glowMaterial(0xccfff0));
       halo.scale.setScalar(6);
       group.add(halo);
+    } else if (p.k === 'icelance') {
+      material = new THREE.MeshBasicMaterial({ color: 0xe6faff, toneMapped: false, transparent: true, opacity: 0.92 });
+      const shard = new THREE.Mesh(new THREE.ConeGeometry(0.75, 7, 6), material);
+      shard.rotation.x = Math.PI / 2;
+      group.add(shard);
+      const halo = new THREE.Sprite(glowMaterial(0x9feaff));
+      halo.scale.setScalar(5);
+      group.add(halo);
+    } else if (p.k === 'shadowbolt') {
+      material = new THREE.MeshBasicMaterial({ color: 0x2a1140, toneMapped: false });
+      group.add(new THREE.Mesh(new THREE.IcosahedronGeometry(1.1, 1), material));
+      const halo = new THREE.Sprite(glowMaterial(0xa45cff));
+      halo.scale.setScalar(6);
+      group.add(halo);
+      const wisp = new THREE.Sprite(glowMaterial(0x5a1a9a));
+      wisp.scale.setScalar(9);
+      group.add(wisp);
+    } else if (p.k === 'waterprison') {
+      material = new THREE.MeshBasicMaterial({ color: 0x63d9ff, transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false });
+      group.add(new THREE.Mesh(new THREE.SphereGeometry(1.6, 14, 10), material));
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(2.4, 0.25, 6, 20),
+        new THREE.MeshBasicMaterial({ color: 0xbdf0ff, transparent: true, opacity: 0.8, toneMapped: false })
+      );
+      ring.rotation.x = Math.PI / 2;
+      group.add(ring);
     } else {
       material = new THREE.MeshBasicMaterial({ color, toneMapped: false });
       // El chorro es un cono que apunta hacia donde vuela (el grupo se orienta
@@ -550,10 +670,12 @@ export class EffectsView {
       holder.dz = p.dz;
       const y = this.ground(holder.x, holder.z) + 2.3;
       holder.group.position.set(holder.x, y, holder.z);
-      if (holder.kind === 'jet') {
+      if (holder.kind === 'jet' || holder.kind === 'icelance') {
         holder.group.lookAt(holder.x + p.dx, y, holder.z + p.dz);
-      } else if (holder.kind === 'gust') {
+      } else if (holder.kind === 'gust' || holder.kind === 'windblade') {
         holder.group.rotation.y += dt * 14;
+      } else if (holder.kind === 'waterprison') {
+        holder.group.rotation.y += dt * 4;
       } else if (holder.kind === 'rock') {
         holder.group.rotation.x += dt * 6;
         holder.group.rotation.y += dt * 5;
@@ -561,7 +683,20 @@ export class EffectsView {
       holder.trail -= dt;
       if (holder.trail <= 0) {
         holder.trail = 0.035;
-        const color = holder.kind === 'lavabolt' ? 0xffc46b : holder.kind === 'jet' ? 0x9ae8ff : holder.kind === 'gust' ? 0xccfff0 : 0xb59c7d;
+        const color =
+          holder.kind === 'lavabolt' || holder.kind === 'fireball'
+            ? 0xffc46b
+            : holder.kind === 'abyssflame'
+              ? 0xb06bff
+              : holder.kind === 'icelance'
+                ? 0xd8f8ff
+                : holder.kind === 'shadowbolt'
+                  ? 0x9a5cff
+                  : holder.kind === 'jet' || holder.kind === 'waterprison'
+                    ? 0x9ae8ff
+                    : holder.kind === 'gust' || holder.kind === 'windblade'
+                      ? 0xccfff0
+                      : 0xb59c7d;
         this.particles.emit(holder.x, y, holder.z, color, {
           vx: (Math.random() - 0.5) * 2,
           vy: 1 + Math.random() * 2,
@@ -619,9 +754,10 @@ export class EffectsView {
 
     switch (zone.t) {
       case 'lava': {
-        holder.disc = flatDisc(zone.r, 0xff5a1f, 0.55);
-        flatDisc(zone.r * 0.7, 0xffc14d, 0.5);
-        const glow = new THREE.Sprite(glowMaterial(0xff8a3c));
+        const dark = zone.s === 'dark';
+        holder.disc = flatDisc(zone.r, dark ? 0x5b1a8a : 0xff5a1f, 0.55);
+        flatDisc(zone.r * 0.7, dark ? 0xb06bff : 0xffc14d, 0.5);
+        const glow = new THREE.Sprite(glowMaterial(dark ? 0xb06bff : 0xff8a3c));
         glow.scale.setScalar(zone.r * 3.2);
         glow.position.y = 1.4;
         group.add(glow);
@@ -629,6 +765,31 @@ export class EffectsView {
       }
       case 'wall': {
         const width = zone.w || 155;
+        const style = zone.s || 'fire';
+        // Muros no ígneos: bloques de piedra, agujas de hielo o una maraña de
+        // raíces. Comparten forma de fila para que se lean como barrera.
+        if (style !== 'fire') {
+          const blockColor = style === 'stone' ? 0x8a7a62 : style === 'ice' ? 0xbfefff : 0x4f8f46;
+          const count = 7;
+          const step = width / count;
+          for (let i = 0; i < count; i++) {
+            const offset = -width / 2 + step * (i + 0.5);
+            const height = 22 + (i % 3) * 8 + Math.random() * 5;
+            const geometry =
+              style === 'ice'
+                ? new THREE.ConeGeometry(step * 0.4, height, 5)
+                : style === 'stone'
+                  ? new THREE.BoxGeometry(step * 0.94, height, 14)
+                  : new THREE.CylinderGeometry(step * 0.16, step * 0.28, height, 5);
+            const material = new THREE.MeshLambertMaterial({ color: blockColor, flatShading: true });
+            const block = new THREE.Mesh(geometry, material);
+            block.position.set(-zone.dz * offset, height * 0.5, zone.dx * offset);
+            block.rotation.y = Math.atan2(zone.dx, zone.dz);
+            if (style === 'root') block.rotation.z = (Math.random() - 0.5) * 0.25;
+            add(block);
+          }
+          break;
+        }
         // Dos cortinas superpuestas: la de delante más alta y una detrás más
         // baja y desplazada, para que el muro tenga fondo.
         holder.shaders = [];
@@ -654,13 +815,14 @@ export class EffectsView {
           transparent: true,
           depthWrite: false,
           side: THREE.DoubleSide,
-          uniforms: { uTime: { value: 0 } },
+          uniforms: { uTime: { value: 0 }, uIce: { value: zone.s === 'ice' ? 1 : 0 } },
           vertexShader: /* glsl */ `
             varying vec2 vUv;
             void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
           `,
           fragmentShader: /* glsl */ `
             uniform float uTime;
+            uniform float uIce;
             varying vec2 vUv;
             void main() {
               float x = vUv.x;
@@ -669,8 +831,8 @@ export class EffectsView {
               float crest = 0.8 + sin(x * 11.0 + uTime * 1.1) * 0.1 + sin(x * 31.0 - uTime * 2.2) * 0.05;
               float band = sin(x * 16.0 + h * 7.0 - uTime * 4.0) * 0.5 + 0.5;
               float foam = smoothstep(crest - 0.22, crest, h);
-              vec3 deep = vec3(0.04, 0.26, 0.46);
-              vec3 shallow = vec3(0.32, 0.78, 0.98);
+              vec3 deep = mix(vec3(0.04, 0.26, 0.46), vec3(0.08, 0.34, 0.44), uIce);
+              vec3 shallow = mix(vec3(0.32, 0.78, 0.98), vec3(0.78, 0.96, 1.0), uIce);
               vec3 color = mix(deep, shallow, h * 0.9 + band * 0.15);
               color = mix(color, vec3(1.0), foam * 0.8 + band * 0.08);
               float side = smoothstep(0.0, 0.08, x) * smoothstep(1.0, 0.92, x);
@@ -689,9 +851,12 @@ export class EffectsView {
         break;
       }
       case 'tornado': {
-        const fire = zone.s === 'fire';
-        const inner = fire ? 0xff9142 : 0xd6fff2;
-        const outer = fire ? 0xff4d16 : 0x5fd7b6;
+        const style = zone.s || 'wind';
+        const fire = style === 'fire';
+        const storm = style === 'storm';
+        const abyss = style === 'abyss';
+        const inner = fire ? 0xff9142 : storm ? 0xe0d4ff : abyss ? 0x9a6bff : 0xd6fff2;
+        const outer = fire ? 0xff4d16 : storm ? 0x8a6cff : abyss ? 0x3a1260 : 0x5fd7b6;
         const pull = zone.r || 95;
         const base = Math.max(7, pull * 0.24);
         const top = Math.max(18, pull * 0.66);
@@ -815,14 +980,21 @@ export class EffectsView {
         break;
       }
       case 'storm': {
-        flatDisc(zone.r, 0x9b7bff, 0.12);
+        const icy = zone.s === 'ice';
+        flatDisc(zone.r, icy ? 0x7fe6ff : 0x9b7bff, 0.12);
         // Techo de nube: dos cúpulas achatadas superpuestas. La lluvia son
         // partículas, no una pared de geometría.
         holder.clouds = [];
-        const cloudLayers = [
-          { r: zone.r * 1.25, y: 175, squash: 0.34, color: 0x241d44, opacity: 0.5 },
-          { r: zone.r * 0.85, y: 150, squash: 0.4, color: 0x332a5c, opacity: 0.45 },
-        ];
+        const cloudLayers = icy
+          ? [
+              { r: zone.r * 1.25, y: 175, squash: 0.34, color: 0x2a4a6a, opacity: 0.5 },
+              { r: zone.r * 0.85, y: 150, squash: 0.4, color: 0x3a6a8a, opacity: 0.45 },
+            ]
+          : [
+              { r: zone.r * 1.25, y: 175, squash: 0.34, color: 0x241d44, opacity: 0.5 },
+              { r: zone.r * 0.85, y: 150, squash: 0.4, color: 0x332a5c, opacity: 0.45 },
+            ];
+        holder.icy = icy;
         for (const layer of cloudLayers) {
           const material = new THREE.MeshBasicMaterial({
             color: layer.color,
@@ -841,6 +1013,223 @@ export class EffectsView {
           holder.clouds.push({ material, base: layer.opacity });
         }
         holder.strike = 0.35 + Math.random() * 0.9;
+        break;
+      }
+      case 'field': {
+        const style = zone.s || 'earth';
+        const main = styleColor(style);
+        const accent = accentColor(style);
+        holder.style = style;
+        flatDisc(zone.r, main, 0.22);
+        flatDisc(zone.r * 0.64, accent, 0.16);
+        const ring = new THREE.Mesh(
+          new THREE.TorusGeometry(zone.r * 0.72, 2.6, 8, 64),
+          new THREE.MeshBasicMaterial({
+            color: main,
+            transparent: true,
+            opacity: 0.6,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            toneMapped: false,
+          })
+        );
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 1.6;
+        add(ring);
+        holder.ring = ring;
+        const domeStyles = ['dark', 'frost', 'blizzard', 'polar', 'glacial', 'crystal', 'cursed', 'abyss'];
+        if (domeStyles.includes(style)) {
+          const dome = new THREE.Mesh(
+            new THREE.SphereGeometry(zone.r, 26, 12, 0, Math.PI * 2, 0, Math.PI * 0.5),
+            new THREE.MeshBasicMaterial({
+              color: style === 'dark' || style === 'cursed' ? 0x140a24 : main,
+              transparent: true,
+              opacity: style === 'dark' || style === 'cursed' ? 0.34 : 0.16,
+              depthWrite: false,
+              side: THREE.DoubleSide,
+            })
+          );
+          dome.position.y = 0.4;
+          add(dome);
+          holder.dome = dome;
+        }
+        holder.mists = [];
+        for (let i = 0; i < 6; i++) {
+          const material = new THREE.SpriteMaterial({
+            map: makeGlowTexture(),
+            color: main,
+            transparent: true,
+            opacity: 0.2,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            toneMapped: false,
+          });
+          const sprite = new THREE.Sprite(material);
+          const angle = (i / 6) * Math.PI * 2;
+          sprite.position.set(Math.cos(angle) * zone.r * 0.6, 3 + (i % 3) * 2.4, Math.sin(angle) * zone.r * 0.6);
+          sprite.scale.setScalar(zone.r * 0.7);
+          add(sprite);
+          holder.mists.push({ sprite, baseY: sprite.position.y, phase: i * 0.9 });
+        }
+        holder.embers = 0;
+        break;
+      }
+      case 'prison': {
+        const main = styleColor(zone.s);
+        flatDisc(zone.r, main, 0.3);
+        const bars = 12;
+        for (let i = 0; i < bars; i++) {
+          const angle = (i / bars) * Math.PI * 2;
+          const material = new THREE.MeshBasicMaterial({
+            color: main,
+            transparent: true,
+            opacity: 0.55,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            toneMapped: false,
+          });
+          const bar = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.8, 26, 6, 1, true), material);
+          bar.position.set(Math.cos(angle) * zone.r * 0.72, 13, Math.sin(angle) * zone.r * 0.72);
+          bar.rotation.z = Math.cos(angle) * 0.12;
+          bar.rotation.x = Math.sin(angle) * 0.12;
+          add(bar);
+        }
+        const dome = new THREE.Mesh(
+          new THREE.SphereGeometry(zone.r * 0.8, 24, 10, 0, Math.PI * 2, 0, Math.PI * 0.5),
+          new THREE.MeshBasicMaterial({ color: main, transparent: true, opacity: 0.22, wireframe: true, depthWrite: false })
+        );
+        dome.position.y = 0.3;
+        add(dome);
+        holder.dome = dome;
+        break;
+      }
+      case 'spikes': {
+        holder.spikes = [];
+        const count = 10;
+        for (let i = 0; i < count; i++) {
+          const angle = (i / count) * Math.PI * 2 + Math.random() * 0.3;
+          const radius = i === 0 ? 0 : zone.r * (0.3 + Math.random() * 0.6);
+          const height = 18 + Math.random() * 26;
+          const spikeColor = zone.s === 'crystal' ? 0xbfefff : zone.s === 'earth' ? 0x9a8567 : styleColor(zone.s, 0x9a8567);
+          const spike = new THREE.Mesh(
+            new THREE.ConeGeometry(3.4 + Math.random() * 2.6, height, 5),
+            new THREE.MeshLambertMaterial({ color: spikeColor, flatShading: true })
+          );
+          spike.position.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+          spike.rotation.z = (Math.random() - 0.5) * 0.3;
+          spike.rotation.x = (Math.random() - 0.5) * 0.3;
+          spike.scale.y = 0.001;
+          add(spike);
+          holder.spikes.push({ mesh: spike, height });
+        }
+        flatDisc(zone.r, styleColor(zone.s), 0.18);
+        break;
+      }
+      case 'geyser': {
+        const main = styleColor(zone.s, 0x9fe8ff);
+        const column = new THREE.Mesh(
+          new THREE.CylinderGeometry(zone.r * 0.2, zone.r * 0.5, 46, 20, 1, true),
+          new THREE.MeshBasicMaterial({
+            color: main,
+            transparent: true,
+            opacity: 0.5,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            toneMapped: false,
+          })
+        );
+        column.position.y = 23;
+        add(column);
+        holder.column = column;
+        flatDisc(zone.r, 0x63d9ff, 0.3);
+        break;
+      }
+      case 'tree': {
+        const trunk = new THREE.Mesh(
+          new THREE.CylinderGeometry(5, 8, 42, 7),
+          new THREE.MeshLambertMaterial({ color: 0x6b4a2a, flatShading: true })
+        );
+        trunk.position.y = 21;
+        add(trunk);
+        holder.leaves = [];
+        for (let i = 0; i < 4; i++) {
+          const canopy = new THREE.Mesh(
+            new THREE.IcosahedronGeometry(22 - i * 3, 0),
+            new THREE.MeshLambertMaterial({ color: i % 2 ? 0x3f8f46 : 0x4faa55, flatShading: true })
+          );
+          canopy.position.y = 42 + i * 9;
+          canopy.scale.set(1, 0.78, 1);
+          add(canopy);
+          holder.leaves.push(canopy);
+        }
+        flatDisc(zone.r, 0x62d97a, 0.18);
+        break;
+      }
+      case 'summon': {
+        const mob = zone.mob || 'golem';
+        const body = new THREE.Group();
+        if (mob === 'clone') {
+          const material = new THREE.MeshBasicMaterial({
+            color: 0x7a3fc4,
+            transparent: true,
+            opacity: 0.6,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          });
+          const torso = new THREE.Mesh(new THREE.ConeGeometry(6, 20, 7), material);
+          torso.position.y = 10;
+          const head = new THREE.Mesh(new THREE.SphereGeometry(4, 10, 8), material);
+          head.position.y = 23;
+          const glow = new THREE.Sprite(glowMaterial(0xb06bff));
+          glow.scale.setScalar(22);
+          glow.position.y = 12;
+          body.add(torso, head, glow);
+        } else {
+          const scale = mob === 'guardian' ? 1.5 : 1;
+          const material = new THREE.MeshLambertMaterial({
+            color: mob === 'guardian' ? 0x6f7a52 : 0x8a7a62,
+            flatShading: true,
+          });
+          const torso = new THREE.Mesh(new THREE.DodecahedronGeometry(9 * scale, 0), material);
+          torso.position.y = 12 * scale;
+          const head = new THREE.Mesh(new THREE.BoxGeometry(7 * scale, 7 * scale, 7 * scale), material);
+          head.position.y = 24 * scale;
+          const armL = new THREE.Mesh(new THREE.BoxGeometry(4 * scale, 16 * scale, 4 * scale), material);
+          armL.position.set(-11 * scale, 12 * scale, 0);
+          armL.rotation.z = 0.3;
+          const armR = armL.clone();
+          armR.position.x = 11 * scale;
+          armR.rotation.z = -0.3;
+          body.add(torso, head, armL, armR);
+          if (mob === 'guardian') {
+            const crown = new THREE.Mesh(
+              new THREE.IcosahedronGeometry(12, 0),
+              new THREE.MeshLambertMaterial({ color: 0x4f8f46, flatShading: true })
+            );
+            crown.position.y = 32;
+            body.add(crown);
+          }
+        }
+        add(body);
+        holder.mob = mob;
+        holder.body = body;
+        flatDisc(zone.r * 0.5, styleColor(zone.s), 0.22);
+        break;
+      }
+      case 'plasma': {
+        const orb = new THREE.Mesh(
+          new THREE.IcosahedronGeometry(9, 2),
+          new THREE.MeshBasicMaterial({ color: 0xff7bf0, toneMapped: false })
+        );
+        orb.position.y = 12;
+        add(orb);
+        holder.orb = orb;
+        const glow = new THREE.Sprite(glowMaterial(0xffb8ff));
+        glow.scale.setScalar(50);
+        orb.add(glow);
+        flatDisc(zone.r, 0xff7bf0, 0.3);
         break;
       }
       default: {
@@ -862,6 +1251,7 @@ export class EffectsView {
       let holder = this.zones.get(zone.id);
       if (!holder) holder = this.createZone(zone);
       holder.zone = zone;
+      holder.age = (holder.age || 0) + dt;
       if (zone.t === 'tornado') {
         holder.spin = (holder.spin || 0) + dt;
         holder.group.position.set(zone.x, this.world.heightAt(zone.x, zone.z), zone.z);
@@ -999,7 +1389,7 @@ export class EffectsView {
             const radius = Math.sqrt(Math.random()) * zone.r;
             const x = zone.x + Math.cos(angle) * radius;
             const z = zone.z + Math.sin(angle) * radius;
-            this.particles.emit(x, this.ground(x, z) + 130 + Math.random() * 45, z, 0xbfb4ff, {
+            this.particles.emit(x, this.ground(x, z) + 130 + Math.random() * 45, z, holder.icy ? 0xbfefff : 0xbfb4ff, {
               vx: 7,
               vy: -165,
               vz: 4,
@@ -1073,6 +1463,78 @@ export class EffectsView {
             size: 6.5,
           });
         }
+      }
+      if (zone.t === 'summon') {
+        holder.group.position.set(zone.x, this.world.heightAt(zone.x, zone.z), zone.z);
+        if (holder.body) {
+          holder.body.position.y = Math.sin((holder.age || 0) * 5 + zone.id) * 0.9;
+          holder.body.rotation.y += dt * (holder.mob === 'clone' ? 1.2 : 0.4);
+        }
+      } else if (zone.t === 'field') {
+        if (holder.ring) holder.ring.rotation.z += dt * 0.7;
+        if (holder.dome) holder.dome.material.opacity = 0.16 + Math.sin((holder.age || 0) * 2.2) * 0.04;
+        if (holder.mists) {
+          for (const mist of holder.mists) {
+            mist.sprite.position.y = mist.baseY + Math.sin((holder.age || 0) * 0.8 + mist.phase) * 1.6;
+          }
+        }
+        holder.embers = (holder.embers || 0) - dt;
+        if (holder.embers <= 0) {
+          holder.embers = 0.05;
+          const style = zone.s || 'earth';
+          const count = style === 'dark' || style === 'poison' || style === 'cursed' ? 2 : 1;
+          for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = Math.sqrt(Math.random()) * zone.r;
+            const x = zone.x + Math.cos(angle) * radius;
+            const z = zone.z + Math.sin(angle) * radius;
+            const up = style === 'magma' || style === 'wildfire' ? 8 : style === 'ice' || style === 'blizzard' ? 3 : 5;
+            this.particles.emit(x, this.ground(x, z) + 0.6, z, styleColor(style), {
+              vx: (Math.random() - 0.5) * 3,
+              vy: up + Math.random() * 4,
+              vz: (Math.random() - 0.5) * 3,
+              gravity: style === 'magma' || style === 'wildfire' ? -3 : 2,
+              life: 0.9 + Math.random() * 0.6,
+              size: 4.5,
+            });
+          }
+        }
+      } else if (zone.t === 'spikes') {
+        if (holder.spikes) {
+          const emerge = Math.max(0, Math.min(1, ((holder.age || 0) - (zone.d || 0)) * 2.6));
+          for (const spike of holder.spikes) {
+            spike.mesh.scale.y = Math.max(0.001, emerge);
+            spike.mesh.position.y = spike.height * 0.5 * emerge;
+          }
+        }
+      } else if (zone.t === 'geyser') {
+        if (holder.column) {
+          const h = 0.85 + Math.sin((holder.age || 0) * 6) * 0.15;
+          holder.column.scale.y = h;
+          holder.column.position.y = 23 * h;
+        }
+        if (Math.random() < dt * 60) {
+          this.particles.emit(
+            zone.x + (Math.random() - 0.5) * zone.r,
+            this.ground(zone.x, zone.z) + 1,
+            zone.z + (Math.random() - 0.5) * zone.r,
+            0x9fe8ff,
+            { vx: 0, vy: 40 + Math.random() * 20, vz: 0, gravity: 18, life: 1.1, size: 4 }
+          );
+        }
+      } else if (zone.t === 'tree') {
+        if (holder.leaves) {
+          for (let i = 0; i < holder.leaves.length; i++) {
+            holder.leaves[i].rotation.z = Math.sin((holder.age || 0) * 1.4 + i) * 0.04;
+          }
+        }
+      } else if (zone.t === 'plasma') {
+        if (holder.orb) {
+          holder.orb.scale.setScalar(0.8 + Math.sin((holder.age || 0) * 9) * 0.12);
+          holder.orb.rotation.y += dt * 3;
+        }
+      } else if (zone.t === 'prison') {
+        if (holder.dome) holder.dome.rotation.y += dt * 0.5;
       }
       const lifeRatio = Math.max(0, Math.min(1, zone.life / Math.max(0.1, zone.max || 1)));
       const fade = Math.min(1, 0.35 + lifeRatio);

@@ -18,7 +18,11 @@ import {
 } from '../shared/constants.js';
 
 const $ = (id) => document.getElementById(id);
-const ICONS = { fire: '🔥', water: '💧', wind: '🌀', earth: '🪨' };
+const ICONS = {
+  fire: '🔥', water: '💧', wind: '🌀', earth: '🪨',
+  lightning: '⚡', ice: '❄️', nature: '🌿', dark: '🌑',
+};
+const ABILITY_KEYS = ['LMB', 'RMB', '4', '5'];
 
 const STORAGE = {
   name: 'elementalRoyale.name',
@@ -440,7 +444,7 @@ function buildCollection() {
       const line = document.createElement('div');
       line.className = 'ability-line';
       line.innerHTML = `
-        <div class="ability-key">${index === 0 ? 'LMB' : 'RMB'}</div>
+        <div class="ability-key">${ABILITY_KEYS[index] || index + 1}</div>
         <div>
           <strong>${ability.name}</strong>
           <p>${ability.desc}</p>
