@@ -7,6 +7,12 @@ export const WATER_LEVEL = 0.4;
 // Altura del plano de agua visible. El terreno queda por debajo en mares y lagos.
 export const WATER_SURFACE = 0.12;
 export const MOUNTAIN_LEVEL = 0.795;
+// Por encima del nivel de montaña la ladera se puede subir hasta este punto;
+// más arriba (cumbre y nieve) sigue siendo pared.
+export const MOUNTAIN_PEAK_LEVEL = 0.87;
+// Pendiente máxima que se puede trepar (elevación por unidad de mundo). Las
+// laderas del generador rondan 0,001 de media y nunca pasan de 0,0027.
+const MOUNTAIN_MAX_SLOPE = 0.004;
 export const BEACH_LEVEL = 0.437;
 export const LAND_ELEV = 0.411;
 
@@ -387,7 +393,16 @@ export function createWorld(seed) {
   function terrainBlocked(x, z) {
     if (x < -HALF_WORLD + 10 || x > HALF_WORLD - 10 || z < -HALF_WORLD + 10 || z > HALF_WORLD - 10) return true;
     const e = elevationAt(x, z, seed);
-    return e < LAND_ELEV || e > MOUNTAIN_LEVEL;
+    if (e < LAND_ELEV) return true;
+    if (e <= MOUNTAIN_LEVEL) return false;
+    if (e > MOUNTAIN_PEAK_LEVEL) return true;
+    // Las laderas de montaña son suaves: cortar por altura dejaba una pared
+    // invisible en mitad de una cuesta que se ve pisable. Se sube mientras la
+    // pendiente no sea de risco.
+    const d = 2.5;
+    const gx = elevationAt(x + d, z, seed) - elevationAt(x - d, z, seed);
+    const gz = elevationAt(x, z + d, seed) - elevationAt(x, z - d, seed);
+    return Math.hypot(gx, gz) / (2 * d) > MOUNTAIN_MAX_SLOPE;
   }
 
   function propBlocked(x, z, radius) {

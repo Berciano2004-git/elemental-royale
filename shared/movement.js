@@ -38,6 +38,16 @@ export function moveWithCollision(world, x, z, dx, dz, radius) {
       const rz = (ux * sin + uz * cos) * len;
       if (canTraverse(world, x + rx, z + rz, radius)) return { x: x + rx, z: z + rz };
     }
+    // Pared larga (costa, risco, ladera): casi en paralelo y con paso corto, el
+    // mago resbala a lo largo en vez de quedarse parado empujando de frente.
+    for (const angle of [1.35, -1.35]) {
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const slide = len * 0.6;
+      const rx = (ux * cos - uz * sin) * slide;
+      const rz = (ux * sin + uz * cos) * slide;
+      if (canTraverse(world, x + rx, z + rz, radius)) return { x: x + rx, z: z + rz };
+    }
   }
   return { x, z };
 }
