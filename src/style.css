@@ -533,7 +533,13 @@ button {
   background: rgba(255, 255, 255, 0.18);
   border: 0;
   padding: 0;
+  cursor: pointer;
   transition: background 0.2s, transform 0.2s;
+}
+
+.dot:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
 }
 
 .dot.active {

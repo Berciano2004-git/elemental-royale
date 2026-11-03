@@ -71,6 +71,10 @@ export class Net {
         const wasConnected = this.connected;
         this.connected = false;
         this.ws = null;
+        // Si la conexión se cierra antes de abrir (servidor caído o sala llena),
+        // sin esto la espera del botón «Entrar» no terminaría nunca y el botón
+        // se quedaría bloqueado. Rechazar después de resolver no tiene efecto.
+        if (!wasConnected) reject(new Error('El servidor cerró la conexión'));
         for (const handler of this.closeHandlers) handler(this.manualClose, wasConnected);
       };
     });

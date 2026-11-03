@@ -3,6 +3,7 @@
 import {
   ELEMENTS,
   HALF_WORLD,
+  MATCH_PLAYERS,
   RARITIES,
   WORLD_SIZE,
   comboFor,
@@ -74,6 +75,11 @@ export class HUD {
     this.minimapBg = null;
     this.stormAmount = 0;
     this.slotCache = [null, null];
+    this.slotCdCache = [null, null];
+    // El velo de recarga no cambia nunca: se fija una sola vez en lugar de
+    // reescribir el estilo en cada instantánea.
+    for (const slot of this.slots) slot.querySelector('.ps-cd').style.background = 'rgba(4, 7, 18, 0.68)';
+    this.comboCd.style.background = 'rgba(4, 7, 18, 0.68)';
     this.toastQueue = [];
     this.aimColor = '#f3c96b';
     this.damageTimer = null;
@@ -90,6 +96,7 @@ export class HUD {
 
   reset() {
     this.slotCache = [null, null];
+    this.slotCdCache = [null, null];
     this.lastSelf = null;
     this.snap = null;
     this.killfeed.innerHTML = '';
@@ -101,7 +108,7 @@ export class HUD {
     this.nameplates.clear();
     this.playerName.textContent = 'Mago';
     this.killsLabel.textContent = '0 eliminaciones';
-    this.aliveCount.textContent = '10';
+    this.aliveCount.textContent = String(MATCH_PLAYERS);
     this.matchTimer.textContent = '00:00';
     this.manaFill.style.width = '100%';
     this.hpFill.style.width = '100%';
@@ -148,7 +155,6 @@ export class HUD {
     this.manaFill.style.width = `${Math.max(0, Math.min(100, self.mn))}%`;
     this.manaText.textContent = `${Math.round(self.mn)}`;
     this.staminaFill.style.width = `${Math.max(0, Math.min(100, self.st))}%`;
-    this.playerName.textContent = this.playerName.textContent || 'Mago';
     this.killsLabel.textContent = self.k === 1 ? '1 eliminación' : `${self.k} eliminaciones`;
     this.aliveCount.textContent = snap.alive;
 
@@ -211,7 +217,6 @@ export class HUD {
             : `${combo.mana} maná · pulsa 3`;
       this.comboCd.classList.toggle('show', self.cc > 0);
       this.comboCd.textContent = self.cc > 0 ? Math.ceil(self.cc) : '';
-      this.comboCd.style.background = `rgba(4, 7, 18, 0.68)`;
     } else {
       this.comboCard.className = 'combo-card locked';
       this.comboName.textContent = 'Combinación';
@@ -236,26 +241,38 @@ export class HUD {
   updateSlot(index, slot, cd, active) {
     const el = this.slots[index];
     const meta = ELEMENTS[slot.e];
-    const color = cssColor(meta.color);
-    el.classList.remove('empty');
-    el.classList.toggle('active', active);
-    el.style.setProperty('--slot-color', color);
-    el.style.setProperty('--slot-glow', rgba(meta.color, 0.18));
-    el.style.setProperty('--slot-soft', rgba(meta.color, 0.14));
-    el.style.setProperty('--slot-line', rgba(meta.color, 0.35));
-    el.querySelector('.ps-key').textContent = String(index + 1);
-    el.querySelector('.ps-icon').textContent = ICONS[slot.e];
-    el.querySelector('.ps-name').textContent = meta.name;
-    const rarity = RARITIES[slot.r] || RARITIES.common;
-    el.querySelector('.ps-sub').textContent = `${rarity.name} · ${meta.abilities[0].name}`;
-    const overlay = el.querySelector('.ps-cd');
-    const remaining = Math.max(cd?.[0] || 0, cd?.[1] || 0);
-    overlay.classList.toggle('show', remaining > 0);
-    overlay.textContent = remaining > 0 ? Math.ceil(remaining) : '';
-    overlay.style.background = `rgba(4, 7, 18, 0.68)`;
+    const key = `${slot.e}|${slot.r}|${active ? 1 : 0}`;
+    // El contenido del hueco solo se reescribe cuando cambia el poder, la
+    // rareza o el hueco activo: antes se tocaba el DOM veinte veces por segundo.
+    if (this.slotCache[index] !== key) {
+      this.slotCache[index] = key;
+      const color = cssColor(meta.color);
+      el.classList.remove('empty');
+      el.classList.toggle('active', active);
+      el.style.setProperty('--slot-color', color);
+      el.style.setProperty('--slot-glow', rgba(meta.color, 0.18));
+      el.style.setProperty('--slot-soft', rgba(meta.color, 0.14));
+      el.style.setProperty('--slot-line', rgba(meta.color, 0.35));
+      el.querySelector('.ps-key').textContent = String(index + 1);
+      el.querySelector('.ps-icon').textContent = ICONS[slot.e];
+      el.querySelector('.ps-name').textContent = meta.name;
+      const rarity = RARITIES[slot.r] || RARITIES.common;
+      el.querySelector('.ps-sub').textContent = `${rarity.name} · ${meta.abilities[0].name}`;
+    }
+    // La cuenta atrás solo se pinta cuando cambia el segundo entero.
+    const remaining = Math.ceil(Math.max(cd?.[0] || 0, cd?.[1] || 0));
+    if (this.slotCdCache[index] !== remaining) {
+      this.slotCdCache[index] = remaining;
+      const overlay = el.querySelector('.ps-cd');
+      overlay.classList.toggle('show', remaining > 0);
+      overlay.textContent = remaining > 0 ? String(remaining) : '';
+    }
   }
 
   updateSlotEmpty(index) {
+    if (this.slotCache[index] === 'empty') return;
+    this.slotCache[index] = 'empty';
+    this.slotCdCache[index] = 0;
     const el = this.slots[index];
     el.classList.add('empty');
     el.classList.remove('active');

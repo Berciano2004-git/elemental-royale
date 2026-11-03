@@ -45,6 +45,7 @@ let frameMs = 16.7;
 let fpsFrames = 0;
 let fpsAccum = 0;
 let serverAllowsAdmin = false;
+let serverError = '';
 let tuneTimer = 0;
 let mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 let orbiting = false;
@@ -355,10 +356,14 @@ function requestLookLock() {
 
 net.on('welcome', (msg) => {
   clientId = msg.id;
+  serverError = '';
   serverAllowsAdmin = !!msg.admin;
   admin.setServer(serverAllowsAdmin);
   ui.setSelfClientId(msg.id);
-  if (msg.name) hud.setPlayerName(msg.name);
+  if (msg.name) {
+    ui.adoptName?.(msg.name);
+    hud.setPlayerName(msg.name);
+  }
 });
 
 net.on('admin', (msg) => {
@@ -437,7 +442,10 @@ net.on('end', (msg) => {
 });
 
 net.on('error', (msg) => {
-  ui.setConnection(msg.msg || 'Error de conexión', true);
+  // Se guarda el motivo para que el cierre inmediato de la conexión no lo
+  // sustituya por un «no se pudo conectar» genérico (por ejemplo, sala llena).
+  serverError = msg.msg || 'Error de conexión';
+  ui.setConnection(serverError, true);
   ui.setPlayBusy(false);
 });
 
@@ -458,9 +466,11 @@ net.onClose((manual, wasConnected) => {
   ui.showWaiting(false);
   ui.showScreen('home');
   ui.setConnection(
-    wasConnected ? 'Se perdió la conexión con la partida.' : 'No se pudo conectar con el servidor.',
+    serverError ||
+      (wasConnected ? 'Se perdió la conexión con la partida.' : 'No se pudo conectar con el servidor.'),
     true
   );
+  serverError = '';
   audio.setStormIntensity(0);
 });
 

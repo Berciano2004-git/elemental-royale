@@ -60,6 +60,7 @@ let pauseOpen = false;
 let waitingOpen = false;
 let saveTimer = null;
 let nameTimer = null;
+let statusTimer = null;
 
 let look = loadJSON(STORAGE.look, defaultLook());
 let name = (() => {
@@ -179,6 +180,15 @@ function closeSettings() {
 
 // ------------------------------------------------------------ personalización
 
+const FIELD_LABELS = {
+  robe: 'Túnica',
+  hatColor: 'Sombrero',
+  staffColor: 'Bastón',
+  magic: 'Magia',
+  hair: 'Cabello',
+  skin: 'Piel',
+};
+
 function buildSwatches(containerId, colors, field) {
   const container = $(containerId);
   container.innerHTML = '';
@@ -189,6 +199,7 @@ function buildSwatches(containerId, colors, field) {
     button.style.background = color;
     button.dataset.color = color;
     button.title = color;
+    button.setAttribute('aria-label', `${FIELD_LABELS[field] || 'Color'} ${color}`);
     button.addEventListener('click', () => {
       look[field] = color;
       syncCustomizer();
@@ -198,17 +209,27 @@ function buildSwatches(containerId, colors, field) {
   }
 }
 
+// Cada punto lleva directo a esa pieza: además de los botones ‹ ›, se puede
+// pulsar el punto concreto y se alcanza también con el teclado.
 function buildDots(containerId, items, field) {
   const container = $(containerId);
   container.innerHTML = '';
   for (const item of items) {
-    const dot = document.createElement('span');
+    const dot = document.createElement('button');
+    dot.type = 'button';
     dot.className = 'dot';
     dot.dataset.id = item.id;
     dot.title = item.name;
+    dot.setAttribute('aria-label', item.name);
+    dot.addEventListener('click', () => {
+      if (look[field] === item.id) return;
+      look[field] = item.id;
+      syncCustomizer();
+      commitLook();
+      callbacks.uiClick?.();
+    });
     container.appendChild(dot);
   }
-  void field;
 }
 
 function syncCustomizer() {
@@ -216,8 +237,16 @@ function syncCustomizer() {
   const staffIndex = Math.max(0, STAVES.findIndex((s) => s.id === look.staff));
   $('hat-name').textContent = HATS[hatIndex].name;
   $('staff-name').textContent = STAVES[staffIndex].name;
-  for (const dot of $('hat-dots').children) dot.classList.toggle('active', dot.dataset.id === look.hat);
-  for (const dot of $('staff-dots').children) dot.classList.toggle('active', dot.dataset.id === look.staff);
+  for (const dot of $('hat-dots').children) {
+    const on = dot.dataset.id === look.hat;
+    dot.classList.toggle('active', on);
+    dot.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  for (const dot of $('staff-dots').children) {
+    const on = dot.dataset.id === look.staff;
+    dot.classList.toggle('active', on);
+    dot.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
 
   const fields = [
     ['robe-swatches', 'robe'],
@@ -229,7 +258,9 @@ function syncCustomizer() {
   ];
   for (const [containerId, field] of fields) {
     for (const swatch of $(containerId).children) {
-      swatch.classList.toggle('active', swatch.dataset.color === look[field]);
+      const on = swatch.dataset.color === look[field];
+      swatch.classList.toggle('active', on);
+      swatch.setAttribute('aria-pressed', on ? 'true' : 'false');
     }
   }
   $('home-wizard-name').textContent = name || 'Mago Errante';
@@ -355,9 +386,14 @@ function showEnd(data, duration, selfName) {
     const kills = document.createElement('span');
     kills.textContent = `${row.kills} eliminaciones`;
     item.append(pos, who, kills);
+    if (selfName && row.name === selfName) {
+      const you = document.createElement('span');
+      you.className = 'you';
+      you.textContent = 'TÚ';
+      item.appendChild(you);
+    }
     top.appendChild(item);
   }
-  void selfName;
   showScreen('end');
 }
 
@@ -571,6 +607,8 @@ export const ui = {
   setLobbyStatus,
   setConnection(text, isError = false) {
     const el = $('connection-status');
+    // Un aviso temporal anterior no debe ocultar un mensaje de error nuevo.
+    clearTimeout(statusTimer);
     if (!text) {
       el.classList.add('hidden');
       return;
@@ -602,9 +640,19 @@ export const ui = {
   isPaused: () => pauseOpen,
   currentScreen: () => currentScreen,
   toast: (text) => {
-    $('connection-status').textContent = text;
-    $('connection-status').classList.remove('hidden');
-    setTimeout(() => $('connection-status').classList.add('hidden'), 3000);
+    const el = $('connection-status');
+    clearTimeout(statusTimer);
+    el.textContent = text;
+    el.classList.remove('hidden', 'error');
+    statusTimer = setTimeout(() => el.classList.add('hidden'), 3000);
+  },
+  // Si el jugador no ha escrito un nombre, se adopta el que asigna el servidor
+  // para que los menús y la partida muestren el mismo.
+  adoptName(serverName) {
+    if (name || !serverName) return;
+    name = String(serverName).slice(0, 20);
+    saveName();
+    syncNameInputs();
   },
   previewLook: (nextLook) => setLook(nextLook),
   previewElement: (element) => setElementPreview(element),

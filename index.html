@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <meta name="theme-color" content="#0a0f1e" />
   <title>Elemental Royale · Battle Royale de magia</title>
   <meta name="description" content="Battle royale 3D de magos elementales: recoge poderes de fuego, agua, viento y tierra, combina hechizos y sé el último mago en pie." />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔮</text></svg>" />
@@ -11,7 +12,7 @@
 <body>
   <div id="app">
     <div id="scene-wrap">
-      <canvas id="scene" aria-label="Mundo 3D de Elemental Royale"></canvas>
+      <canvas id="scene" role="img" aria-label="Mundo 3D de Elemental Royale"></canvas>
       <div id="nameplates"></div>
     </div>
 
@@ -96,7 +97,6 @@
       <div class="hud-hint">WASD mover &nbsp;·&nbsp; ratón apuntar &nbsp;·&nbsp; clic Izq./Der. lanzar &nbsp;·&nbsp; Q/E girar &nbsp;·&nbsp; R/F altura &nbsp;·&nbsp; 1/2 cambiar &nbsp;·&nbsp; 3 combo &nbsp;·&nbsp; Espacio saltar &nbsp;·&nbsp; Shift correr &nbsp;·&nbsp; V vista &nbsp;·&nbsp; Esc menú</div>
       <div id="toasts" class="toasts"></div>
       <div id="spectate-banner" class="spectate hidden">Observando la partida…</div>
-      <div id="respawn-hint" class="hidden"></div>
     </div>
 
     <div id="aim-cursor" class="hidden">

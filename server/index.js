@@ -9,18 +9,19 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createGame } from './game.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(__dirname, '..');
+
 // Carga .env (y .env.local) si existen: así ARCHIL_API_KEY, PORT o ADMIN_TOOLS
-// pueden venir del fichero local sin exportarlas en la consola.
+// pueden venir del fichero local sin exportarlas en la consola. Se buscan en la
+// raíz del proyecto, no en el directorio desde el que se arranque el servidor.
 for (const file of ['.env', '.env.local']) {
   try {
-    process.loadEnvFile?.(file);
+    process.loadEnvFile?.(path.join(root, file));
   } catch {
     // El fichero no existe: se usan las variables del sistema.
   }
 }
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(__dirname, '..');
 const dist = path.join(root, 'dist');
 const prod = process.argv.includes('--prod') || process.env.NODE_ENV === 'production';
 const port = Number(process.env.PORT) || 8080;
@@ -57,7 +58,9 @@ function serveStatic(req, res) {
     pathname = '/';
   }
   let file = path.normalize(path.join(dist, pathname === '/' ? 'index.html' : pathname));
-  if (!file.startsWith(dist)) {
+  // Solo se sirve lo que cuelga de dist/: con un simple prefijo, una carpeta
+  // hermana llamada «dist-vieja» también pasaría el filtro.
+  if (!file.startsWith(`${dist}${path.sep}`)) {
     res.statusCode = 403;
     res.end('Prohibido');
     return;

@@ -232,7 +232,6 @@ export function createGame(wss, options = {}) {
       case 'join': {
         client.name = sanitizeName(msg.name);
         client.look = sanitizeLook(msg.look);
-        const firstJoin = !client.joined;
         client.joined = true;
         send(client.ws, {
           t: 'welcome',
@@ -243,9 +242,6 @@ export function createGame(wss, options = {}) {
           admin: adminEnabled,
         });
         broadcastLobby();
-        if (firstJoin) {
-          client.ws.send(JSON.stringify({ t: 'lobby', ...lobbySummary() }));
-        }
         break;
       }
       case 'look': {
@@ -351,19 +347,6 @@ export function createGame(wss, options = {}) {
       default:
         break;
     }
-  }
-
-  function lobbySummary() {
-    return {
-      t: 'lobby',
-      players: joinedClients().map((c) => ({ id: c.id, name: c.name, look: c.look })),
-      bots: Math.max(0, MATCH_PLAYERS - joinedClients().length),
-      countdown: state.phase === 'lobby' ? Math.max(0, Math.ceil(state.lobbyTimer)) : 0,
-      inProgress: state.phase !== 'lobby',
-      phase: state.phase,
-      hostId: hostClient()?.id || 0,
-      capacity: MATCH_PLAYERS,
-    };
   }
 
   function handleDisconnect(client) {
