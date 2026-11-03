@@ -920,6 +920,7 @@ export class EffectsView {
         mesh.position.y = 70;
         group.add(mesh);
         holder.meteor = mesh;
+        holder.startD = Math.max(0.001, zone.d || 1);
         // Núcleo brillante más un halo amplio que tiñe el cielo.
         const glow = new THREE.Sprite(glowMaterial(0xffd08a));
         glow.scale.setScalar(52);
@@ -927,7 +928,51 @@ export class EffectsView {
         const halo = new THREE.Sprite(glowMaterial(0xff5a1a));
         halo.scale.setScalar(96);
         mesh.add(halo);
-        flatDisc(zone.r, 0xff5d22, 0.22);
+
+        // Aviso de impacto: el disco solo era una mancha tenue y no se veía
+        // contra el suelo. El anillo doble y la columna de luz marcan el
+        // círculo exacto que va a golpear.
+        flatDisc(zone.r, 0xff5d22, 0.28);
+        const ringMaterial = new THREE.MeshBasicMaterial({
+          color: 0xffb24a,
+          transparent: true,
+          opacity: 0.7,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          toneMapped: false,
+        });
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(zone.r, 2.8, 8, 64), ringMaterial);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 0.9;
+        add(ring);
+        holder.warnRing = ring;
+        holder.warnMat = ringMaterial;
+
+        const innerMaterial = ringMaterial.clone();
+        const inner = new THREE.Mesh(new THREE.TorusGeometry(zone.r * 0.55, 1.6, 6, 48), innerMaterial);
+        inner.rotation.x = -Math.PI / 2;
+        inner.position.y = 0.9;
+        add(inner);
+        holder.warnInner = inner;
+        holder.warnInnerMat = innerMaterial;
+
+        const beamMaterial = new THREE.MeshBasicMaterial({
+          color: 0xff7a2a,
+          transparent: true,
+          opacity: 0.08,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          toneMapped: false,
+        });
+        const beam = new THREE.Mesh(
+          new THREE.CylinderGeometry(zone.r * 0.9, zone.r, 90, 24, 1, true),
+          beamMaterial
+        );
+        beam.position.y = 45;
+        add(beam);
+        holder.warnBeam = beam;
+        holder.warnBeamMat = beamMaterial;
         break;
       }
       case 'mud': {
@@ -1331,9 +1376,22 @@ export class EffectsView {
         holder.group.position.y = this.world.heightAt(zone.x, zone.z);
         if (holder.meteor) {
           const delay = Math.max(0, zone.d || 0);
-          holder.meteor.position.y = 8 + delay * 90;
+          const total = holder.startD || Math.max(0.001, delay);
+          const progress = Math.min(1, Math.max(0, 1 - delay / total));
+          holder.meteor.position.y = 8 + delay * 110;
           holder.meteor.rotation.x += dt * 3;
           holder.meteor.rotation.y += dt * 2;
+          // El aviso late y se cierra sobre el punto de impacto: cuanto menos
+          // queda, más intenso y rápido es el parpadeo.
+          if (holder.warnRing) {
+            holder.warnRing.scale.setScalar(1 + Math.sin(holder.age * 9) * 0.025);
+            holder.warnMat.opacity = 0.4 + progress * 0.5;
+          }
+          if (holder.warnInner) {
+            holder.warnInner.scale.setScalar(1 + progress * 0.3);
+            holder.warnInnerMat.opacity = 0.2 + progress * 0.55;
+          }
+          if (holder.warnBeamMat) holder.warnBeamMat.opacity = 0.05 + progress * 0.15;
           // Rastro de fuego y humo del meteorito.
           for (let i = 0; i < 3; i++) {
             const fire = Math.random() < 0.65;

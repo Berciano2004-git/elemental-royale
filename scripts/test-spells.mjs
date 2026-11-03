@@ -122,6 +122,17 @@ async function castAbility(slot, index, ability, kind) {
     );
     if (!ok) errors.push(`${ability.id}: no apareció la zona`);
   }
+  // La lluvia de meteoritos debe avisar con tiempo suficiente para salir del
+  // círculo (94 de velocidad frente a ~91 de radio): tres avisos y >1,5 s.
+  if (ability.id === 'meteorrain') {
+    const marked = await waitFor(() => {
+      const list = (latest.zones || []).filter(
+        (z) => z.o === selfId && !zoneIds.has(z.id) && z.t === 'meteor'
+      );
+      return list.length >= 3 && Math.max(...list.map((z) => z.d || 0)) >= 1.5;
+    }, 1400);
+    if (!marked) errors.push('meteorrain: aviso demasiado corto o sin tres meteoritos');
+  }
   if (kind === 'projectile' || kind === 'volley') {
     // Los proyectiles rápidos pueden impactar antes de la primera
     // instantánea; en ese caso el impacto (salpicadura, polvo u onda) es la

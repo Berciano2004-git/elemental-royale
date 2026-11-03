@@ -301,7 +301,7 @@ daño = min(30, base × potenciaDeRareza × (fuego equipado ? 1,12 : 1) × tunin
 
 | Elemento | Clic izq. | Clic der. | Tecla 4 | Tecla 5 |
 | --- | --- | --- | --- | --- |
-| Fuego | `fireball`: orbe que estalla y deja brasas | `meteorrain`: cuatro meteoritos | `flamewall`: muro de fuego | `fireburst`: estallido circular |
+| Fuego | `fireball`: orbe que estalla y deja brasas | `meteorrain`: tres meteoritos con aviso de 1,8 s | `flamewall`: muro de fuego | `fireburst`: estallido circular |
 | Agua | `jet`: chorro perforante | `tsunami`: ola que empuja | `waterprison`: esfera que atrapa | `geyser`: columna intermitente |
 | Aire | `tornado`: remolino que atrae | `gust`: ráfaga perforante | `airjump`: salto y desplazamiento | `windcutter`: dos cuchillas |
 | Tierra | `rocks`: tres peñascos | `stonewall`: muro de bloques | `spikes`: pinchos del suelo | `golem`: coloso invocado |
@@ -331,6 +331,11 @@ velocidad; algunos perforan, otros explotan, empujan o persiguen levemente. Las 
 viven en `state.zones`, aplican daño por segundo o por impacto y se sincronizan al cliente con su
 vida restante. Los árboles detienen proyectiles enemigos y las invocaciones (golem, guardián,
 clon) se mueven y golpean desde el servidor.
+
+Los meteoritos no caen a ciegas: cada uno deja un anillo doble y una columna de luz sobre el
+círculo exacto que va a golpear. El primero avisa **1,8 s** antes y los siguientes se escalonan
+0,5 s, de modo que un mago atento puede salir del radio (91 unidades) corriendo, sin depender de
+dash ni de una reacción perfecta.
 
 `applyRoot()` marca `rootUntil`: raíces, congelación y prisiones anulan el movimiento durante
 unos instantes, pero nunca el apuntado ni el lanzamiento. El cliente recibe `rt` en la

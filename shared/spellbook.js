@@ -28,8 +28,8 @@ export const ELEMENTS = {
     abilities: [
       ab('fireball', 'Bola de fuego', 'Orbe incandescente con estela de llamas que estalla al impactar y abre brasas ardientes.', 1.3, 12, 640,
         projectile('fireball', { speed: 540, life: 1.45, dmg: 17, radius: 3, splash: 64, splashDmg: 9, trail: 'fire' })),
-      ab('meteorrain', 'Lluvia de meteoritos', 'Tres meteoritos caen escalonados sobre la zona marcada y dejan cráteres humeantes.', 13, 32, 720,
-        zone('meteors', 'fire', { r: 175, count: 3, delay: 0.9, life: 3.2, dmg: 9, spread: 135 })),
+      ab('meteorrain', 'Lluvia de meteoritos', 'Tres meteoritos marcan el suelo y caen escalonados; el primero avisa casi dos segundos antes y dejan cráteres humeantes.', 13, 32, 720,
+        zone('meteors', 'fire', { r: 175, count: 3, delay: 1.8, stagger: 0.5, life: 4.6, dmg: 9, spread: 140 })),
       ab('flamewall', 'Muro de llamas', 'Una cortina de fuego irregular que corta el paso y quema a quien la cruza durante siete segundos.', 9, 24, 500,
         zone('wall', 'fire', { width: 180, life: 7, dps: 12 })),
       ab('fireburst', 'Explosión ígnea', 'El mago libera un estallido circular de fuego a su alrededor que aparta a los rivales cercanos.', 8, 22, 0,

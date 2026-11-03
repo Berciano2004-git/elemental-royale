@@ -136,6 +136,10 @@ El daño está ajustado al **72 %** y ningún impacto individual supera **30 pun
 habilidad aislada puede eliminar a un mago con la vida llena, ni siquiera una fusión o una
 rareza legendaria. Los combates duran varios intercambios y el control y la posición importan.
 
+La **lluvia de meteoritos** avisa con anillos y una columna de luz en el suelo: el primer
+meteorito tarda **1,8 s** y los demás caen escalonados, así que siempre hay tiempo de salir del
+círculo antes del impacto.
+
 ---
 
 ## 🗺️ El mundo

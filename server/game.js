@@ -826,7 +826,10 @@ export function createGame(wss, options = {}) {
         for (let i = 0; i < count; i++) {
           const angle = Math.random() * Math.PI * 2;
           const offset = Math.random() * (fx.spread || 90) * scale;
-          const delay = (fx.delay || 0.6) * (0.7 + i * 0.32);
+          // El aviso debe dar tiempo real a salir del círculo: con 94 de
+          // velocidad y 91 de radio hacen falta algo más de un segundo, así
+          // que la caída se escalona en vez de multiplicar por una fracción.
+          const delay = (fx.delay || 0.6) + i * (fx.stagger ?? 0.45);
           state.zones.push({
             ...base,
             id: state.nextEntityId++,
@@ -834,7 +837,7 @@ export function createGame(wss, options = {}) {
             style: 'fire',
             x: aim.x + Math.cos(angle) * offset,
             z: aim.z + Math.sin(angle) * offset,
-            r: (fx.r || 160) * 0.55 * scale,
+            r: (fx.r || 160) * 0.52 * scale,
             delay,
             life: delay + 1.3 * tune.duration,
             maxLife: delay + 1.3 * tune.duration,
@@ -1296,7 +1299,7 @@ export function createGame(wss, options = {}) {
 
     switch (combo.id) {
       case 'meteor':
-        zone({ type: 'meteor', style: 'fire', x: aim.x, z: aim.z, r: 120 * tune.projSize, delay: 0.7, life: 1.2 * tune.duration, dmg: 34 * mult });
+        zone({ type: 'meteor', style: 'fire', x: aim.x, z: aim.z, r: 110 * tune.projSize, delay: 1.5, life: 2.8 * tune.duration, dmg: 22 * mult });
         break;
       case 'thunderstorm':
         zone({ type: 'storm', style: 'storm', x: aim.x, z: aim.z, r: 180 * tune.projSize, life: 6 * tune.duration, dps: 10 * mult, slowFactor: 0.75, strikeTimer: 0.4 });
