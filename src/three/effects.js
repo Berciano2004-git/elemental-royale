@@ -3,6 +3,25 @@
 import * as THREE from 'three';
 import { makeGlowTexture } from './world.js';
 import { STYLE_COLORS } from '../../shared/palette.js';
+import {
+  barkMaterial,
+  crackGlow,
+  crystalCluster,
+  crystalMaterial,
+  crystalShard,
+  darkMaterial,
+  energyMaterial,
+  fireShellMaterial,
+  groundDecal,
+  leafMaterial,
+  noiseTexture,
+  rockGeometry,
+  rootGeometry,
+  smokeSprite,
+  stoneBlockGeometry,
+  stoneMaterial,
+  waterMaterial,
+} from './magic.js';
 
 const COLORS = {
   fire: 0xff7a33,
@@ -396,6 +415,72 @@ export class EffectsView {
     this.castGlows = [];
     this.bolts = [];
     this.projectileScale = 1;
+    this.puffs = [];
+    this.decals = [];
+    this.lights = [];
+    this.lightCursor = 0;
+    // Presupuesto fijo: tres luces se reutilizan entre todos los hechizos.
+    for (let i = 0; i < 3; i++) {
+      const light = new THREE.PointLight(0xffffff, 0, 300, 2);
+      light.visible = false;
+      this.group.add(light);
+      this.lights.push({ light, life: 0, max: 1, power: 0 });
+    }
+  }
+
+  flashLight(x, y, z, color, power = 70, life = 0.28) {
+    let slot = this.lights[0];
+    for (const candidate of this.lights) {
+      if (candidate.life < slot.life) slot = candidate;
+    }
+    slot.light.position.set(x, y, z);
+    slot.light.color.set(color);
+    slot.light.distance = 260;
+    slot.power = power;
+    slot.max = life;
+    slot.life = life;
+    slot.light.intensity = power;
+    slot.light.visible = true;
+  }
+
+  addPuff(x, y, z, color, size = 8, life = 1.2, options = {}) {
+    if (this.puffs.length >= 70) {
+      const old = this.puffs.shift();
+      this.group.remove(old.sprite);
+      old.sprite.material.dispose();
+    }
+    const sprite = smokeSprite(color, options.opacity ?? 0.3, size);
+    sprite.position.set(x, y, z);
+    this.group.add(sprite);
+    this.puffs.push({
+      sprite,
+      life,
+      maxLife: life,
+      size,
+      grow: options.grow ?? 1.4,
+      opacity: options.opacity ?? 0.3,
+      drag: options.drag ?? 0.7,
+      vel: new THREE.Vector3(options.vx ?? 0, options.vy ?? 2, options.vz ?? 0),
+    });
+  }
+
+  addScorch(x, z, radius, style = 'fire') {
+    const decal = groundDecal(style, radius, { opacity: 0.9 });
+    const floor = this.ground(x, z) + 0.08;
+    decal.position.set(x, floor, z);
+    decal.traverse((node) => {
+      if (node.material) node.material.userData.baseOpacity = node.material.opacity;
+    });
+    this.group.add(decal);
+    this.decals.push({ group: decal, life: 9, maxLife: 9 });
+    if (this.decals.length > 18) {
+      const old = this.decals.shift();
+      this.group.remove(old.group);
+      old.group.traverse((node) => {
+        if (node.geometry) node.geometry.dispose();
+        if (node.material) node.material.dispose();
+      });
+    }
   }
 
   ground(x, z) {
@@ -442,6 +527,7 @@ export class EffectsView {
     mesh.position.set(x, this.ground(x, z) + radius * 0.5, z);
     mesh.scale.setScalar(radius * 0.35);
     this.group.add(mesh);
+    this.flashLight(x, this.ground(x, z) + radius * 0.45, z, color, Math.min(140, radius * 2), life * 1.6);
     this.flashes.push({ mesh, material, life, maxLife: life, radius });
   }
 
@@ -478,12 +564,31 @@ export class EffectsView {
           }
           break;
         }
-        case 'boom':
-          this.addRing(fx.x, fx.z, color, fx.r || 60, 0.5);
-          this.addFlash(fx.x, fx.z, color, fx.r || 60, 0.3);
+        case 'boom': {
+          const radius = fx.r || 60;
+          this.addRing(fx.x, fx.z, color, radius, 0.5);
+          this.addFlash(fx.x, fx.z, color, radius, 0.3);
+          this.addScorch(fx.x, fx.z, radius * 0.8, fx.el || 'fire');
+          const smokeTint = fx.el === 'water' || fx.el === 'ice' ? 0x9fb4c0
+            : fx.el === 'earth' ? 0x4a3a28
+              : fx.el === 'dark' ? 0x241436 : 0x2a2018;
+          for (let i = 0; i < 4; i++) {
+            this.addPuff(
+              fx.x + (Math.random() - 0.5) * radius * 0.7,
+              y + 2 + Math.random() * 4,
+              fx.z + (Math.random() - 0.5) * radius * 0.7,
+              smokeTint,
+              radius * (0.22 + Math.random() * 0.16),
+              1.1 + Math.random() * 0.7,
+              { vy: 3 + Math.random() * 3, opacity: 0.36, grow: 1.9 }
+            );
+          }
           this.particles.burst(fx.x, y, fx.z, color, 22, { speed: 12, up: 8, life: 0.9, size: 6 });
           this.particles.burst(fx.x, y, fx.z, 0x2b2118, 8, { speed: 5, up: 2, life: 1.2, size: 8, gravity: 4 });
+          // Esquirlas con peso: caen, rebotan y se quedan en el suelo.
+          this.particles.burst(fx.x, y, fx.z, 0x3a2a1c, 10, { speed: 17, up: 15, life: 1.2, size: 3.2, gravity: 30 });
           break;
+        }
         case 'hit':
           this.particles.burst(fx.x, y, fx.z, COLORS.hit, 6, { speed: 4, up: 3, life: 0.42, size: 3.6 });
           break;
@@ -492,10 +597,15 @@ export class EffectsView {
           this.addFlash(fx.x, fx.z, 0xff5d72, 60, 0.5);
           this.particles.burst(fx.x, y, fx.z, 0xff6b7d, 26, { speed: 9, up: 7, life: 1.2, size: 6 });
           this.particles.burst(fx.x, y, fx.z, 0xffffff, 10, { speed: 4, up: 9, life: 1.5, size: 3 });
+          for (let i = 0; i < 3; i++) {
+            this.addPuff(fx.x + (Math.random() - 0.5) * 10, y + 3, fx.z + (Math.random() - 0.5) * 10, 0x3a2030, 16, 1.4, { vy: 4, opacity: 0.32 });
+          }
           break;
         case 'quake':
           this.addRing(fx.x, fx.z, 0xc08a4a, fx.r || 170, 0.85);
           this.addRing(fx.x, fx.z, 0xf3d08a, (fx.r || 170) * 0.7, 0.6);
+          this.addScorch(fx.x, fx.z, (fx.r || 170) * 0.85, 'earth');
+          this.addPuff(fx.x, y + 2, fx.z, 0x6a5638, (fx.r || 170) * 0.4, 1.6, { vy: 2.4, opacity: 0.4, grow: 2.2 });
           this.particles.burst(fx.x, y, fx.z, 0x8a6a44, 24, { speed: 14, up: 4, life: 1.0, size: 5, gravity: 14 });
           // Lascas de piedra que saltan del suelo.
           this.particles.burst(fx.x, y, fx.z, 0xd2a05f, 14, { speed: 20, up: 13, life: 0.9, size: 4, gravity: 24 });
@@ -521,6 +631,10 @@ export class EffectsView {
         case 'combo':
           this.addRing(fx.x, fx.z, 0xf3c96b, 120, 1.1);
           this.addFlash(fx.x, fx.z, 0xf3c96b, 60, 0.4);
+          this.addScorch(fx.x, fx.z, 74, 'plasma');
+          for (let i = 0; i < 4; i++) {
+            this.addPuff(fx.x + (Math.random() - 0.5) * 30, y + 3 + Math.random() * 8, fx.z + (Math.random() - 0.5) * 30, 0x3a2a4a, 18, 1.6, { vy: 4, opacity: 0.3, grow: 2 });
+          }
           this.particles.burst(fx.x, y, fx.z, 0xf3c96b, 20, { speed: 9, up: 8, life: 1.1, size: 5 });
           break;
         case 'swirl':
@@ -572,85 +686,181 @@ export class EffectsView {
     const color = PROJECTILE_COLORS[p.k] || COLORS.fire;
     const group = new THREE.Group();
     let material;
+    const ownedMaterials = [];
+    const ownedShaders = [];
+    const own = (mat) => {
+      ownedMaterials.push(mat);
+      return mat;
+    };
     if (p.k === 'rock') {
-      material = new THREE.MeshLambertMaterial({ color: 0x9a8567, flatShading: true });
-      const mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(1.15, 0), material);
+      // Peñasco PBR con vetas, esquirlas y polvo real en la estela.
+      material = own(stoneMaterial(0x8a7356));
+      const mesh = new THREE.Mesh(rockGeometry(1.25, 1), material);
       mesh.rotation.set(Math.random(), Math.random(), Math.random());
       group.add(mesh);
-      const dust = new THREE.Sprite(glowMaterial(0x8d7a5d));
-      dust.scale.setScalar(4);
-      group.add(dust);
+      const chip = new THREE.Mesh(rockGeometry(0.5, 0), material);
+      chip.position.set(0.75, 0.45, -0.55);
+      chip.rotation.set(Math.random(), Math.random(), Math.random());
+      group.add(chip);
+      const haze = smokeSprite(0x8d7a5d, 0.26, 5.5);
+      own(haze.material);
+      group.add(haze);
     } else if (p.k === 'gust' || p.k === 'windblade') {
-      // Media luna de aire: un anillo abierto y plano que gira al volar.
-      material = new THREE.MeshBasicMaterial({
-        color,
-        transparent: true,
-        opacity: 0.6,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        toneMapped: false,
-      });
+      // Dos cuchillas de aire comprimido con vetas en movimiento.
+      material = own(energyMaterial(0xccfff0, { density: 0.85, speed: 14 }));
       const blade = new THREE.Mesh(new THREE.RingGeometry(1.7, 3.0, 30, 1, 0.25, Math.PI * 1.1), material);
       blade.rotation.x = -Math.PI / 2;
       group.add(blade);
-      const halo = new THREE.Sprite(glowMaterial(0xccfff0));
-      halo.scale.setScalar(6);
-      group.add(halo);
+      const blade2 = new THREE.Mesh(new THREE.RingGeometry(1.2, 2.1, 22, 1, 0.5, Math.PI * 0.8), material);
+      blade2.rotation.x = -Math.PI / 2;
+      blade2.position.y = 0.5;
+      group.add(blade2);
+      ownedShaders.push(material);
+      const haze = smokeSprite(0xd8fff2, 0.18, 6);
+      own(haze.material);
+      group.add(haze);
     } else if (p.k === 'icelance') {
-      material = new THREE.MeshBasicMaterial({ color: 0xe6faff, toneMapped: false, transparent: true, opacity: 0.92 });
-      const shard = new THREE.Mesh(new THREE.ConeGeometry(0.75, 7, 6), material);
-      shard.rotation.x = Math.PI / 2;
-      group.add(shard);
-      const halo = new THREE.Sprite(glowMaterial(0x9feaff));
-      halo.scale.setScalar(5);
-      group.add(halo);
+      // Racimo de cristales con caras físicas y bruma helada.
+      material = own(crystalMaterial(0xc8f4ff));
+      const shards = [
+        { r: 0.65, h: 6.4, z: 0.2 },
+        { r: 0.42, h: 4.6, z: -1.0 },
+        { r: 0.34, h: 3.6, z: 1.0 },
+      ];
+      for (const shard of shards) {
+        const mesh = new THREE.Mesh(crystalShard(shard.r, shard.h), material);
+        mesh.rotation.x = Math.PI / 2;
+        mesh.position.set((Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5, shard.z);
+        group.add(mesh);
+      }
+      const haze = smokeSprite(0xbfefff, 0.22, 5);
+      own(haze.material);
+      group.add(haze);
     } else if (p.k === 'shadowbolt') {
-      material = new THREE.MeshBasicMaterial({ color: 0x2a1140, toneMapped: false });
-      group.add(new THREE.Mesh(new THREE.IcosahedronGeometry(1.1, 1), material));
-      const halo = new THREE.Sprite(glowMaterial(0xa45cff));
-      halo.scale.setScalar(6);
-      group.add(halo);
-      const wisp = new THREE.Sprite(glowMaterial(0x5a1a9a));
-      wisp.scale.setScalar(9);
+      material = own(new THREE.MeshStandardMaterial({
+        color: 0x0a0512,
+        roughness: 0.6,
+        metalness: 0.15,
+        emissive: 0x2a0a4a,
+        emissiveIntensity: 1.2,
+      }));
+      group.add(new THREE.Mesh(new THREE.IcosahedronGeometry(1.05, 2), material));
+      const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(1.7, 2), own(darkMaterial(0x0a0512, 0xa45cff)));
+      group.add(shell);
+      ownedShaders.push(shell.material);
+      const wisp = smokeSprite(0x3a1054, 0.3, 8);
+      wisp.position.y = -0.5;
+      own(wisp.material);
       group.add(wisp);
     } else if (p.k === 'waterprison') {
-      material = new THREE.MeshBasicMaterial({ color: 0x63d9ff, transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false });
-      group.add(new THREE.Mesh(new THREE.SphereGeometry(1.6, 14, 10), material));
-      const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(2.4, 0.25, 6, 20),
-        new THREE.MeshBasicMaterial({ color: 0xbdf0ff, transparent: true, opacity: 0.8, toneMapped: false })
-      );
+      material = own(waterMaterial(0x0d4f78, 0xbfefff));
+      group.add(new THREE.Mesh(new THREE.SphereGeometry(1.7, 20, 14), material));
+      ownedShaders.push(material);
+      const core = new THREE.Mesh(new THREE.SphereGeometry(1.12, 16, 12), own(waterMaterial(0x062a44, 0x9fe8ff)));
+      group.add(core);
+      ownedShaders.push(core.material);
+      const ringMaterial = own(energyMaterial(0xbdf0ff, { density: 0.45, speed: 5 }));
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(2.3, 0.16, 8, 32), ringMaterial);
       ring.rotation.x = Math.PI / 2;
       group.add(ring);
-    } else {
-      material = new THREE.MeshBasicMaterial({ color, toneMapped: false });
-      // El chorro es un cono que apunta hacia donde vuela (el grupo se orienta
-      // con lookAt); el orbe de lava es una piedra fundida con brasas.
-      const geometry =
-        p.k === 'jet' ? new THREE.ConeGeometry(0.85, 6.5, 12, 1, true) : new THREE.IcosahedronGeometry(0.6, 1);
-      const mesh = new THREE.Mesh(geometry, material);
-      if (p.k === 'jet') {
-        mesh.rotation.x = Math.PI / 2;
-        mesh.position.z = 0.6;
-      } else {
-        mesh.rotation.z = Math.PI / 2;
+      ownedShaders.push(ringMaterial);
+      const dropMaterial = own(new THREE.MeshStandardMaterial({
+        color: 0xd8f8ff,
+        emissive: 0x3a9ac0,
+        emissiveIntensity: 0.6,
+        roughness: 0.08,
+        metalness: 0,
+      }));
+      for (let i = 0; i < 6; i++) {
+        const drop = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), dropMaterial);
+        const angle = (i / 6) * Math.PI * 2;
+        drop.position.set(Math.cos(angle) * 2.15, Math.sin(angle * 2) * 0.7, Math.sin(angle) * 2.15);
+        group.add(drop);
       }
+    } else if (p.k === 'jet') {
+      material = own(waterMaterial(0x0b4a70, 0xbfefff));
+      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 1.05, 7, 14, 10, true), material);
+      mesh.rotation.x = Math.PI / 2;
+      mesh.position.z = 0.8;
       group.add(mesh);
-      const sprite = new THREE.Sprite(glowMaterial(color));
-      sprite.scale.setScalar(p.k === 'jet' ? 4.2 : 4.6);
-      group.add(sprite);
-      if (p.k === 'lavabolt') {
-        for (let i = 0; i < 2; i++) {
-          const ember = new THREE.Sprite(glowMaterial(0xffc46b));
-          ember.scale.setScalar(1.7);
-          ember.position.set(Math.cos(i * Math.PI) * 1.3, Math.sin(i * Math.PI) * 0.7, 0);
-          group.add(ember);
-        }
+      ownedShaders.push(material);
+      const haze = smokeSprite(0xbfefff, 0.2, 4.8);
+      own(haze.material);
+      group.add(haze);
+    } else if (p.k === 'fireball' || p.k === 'lavabolt' || p.k === 'abyssflame') {
+      // Núcleo incandescente + dos cáscaras de fuego volumétrico + lenguas.
+      const dark = p.k === 'abyssflame';
+      const inner = dark ? 0xd0a8ff : p.k === 'lavabolt' ? 0xffb15a : 0xffe6b0;
+      const outer = dark ? 0x5a1690 : p.k === 'lavabolt' ? 0xff5a12 : 0xff4a0c;
+      const core = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(p.k === 'lavabolt' ? 0.95 : 0.8, 2),
+        own(new THREE.MeshStandardMaterial({
+          color: dark ? 0x180628 : 0x3a1206,
+          emissive: inner,
+          emissiveIntensity: 2.8,
+          roughness: 0.4,
+          metalness: 0.05,
+          flatShading: true,
+        }))
+      );
+      group.add(core);
+      const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(1.55, 2), own(fireShellMaterial(inner, outer)));
+      shell.material.uniforms.uRadius.value = 1.55;
+      group.add(shell);
+      ownedShaders.push(shell.material);
+      const innerShell = new THREE.Mesh(new THREE.IcosahedronGeometry(1.02, 1), own(fireShellMaterial(0xffffff, inner)));
+      innerShell.material.uniforms.uRadius.value = 1.02;
+      group.add(innerShell);
+      ownedShaders.push(innerShell.material);
+      const tongues = [];
+      for (let i = 0; i < 6; i++) {
+        const angle = (i / 6) * Math.PI * 2;
+        const tongue = new THREE.Mesh(
+          new THREE.ConeGeometry(0.34, 1.9, 5, 1, true),
+          own(fireShellMaterial(inner, outer))
+        );
+        tongue.material.uniforms.uRadius.value = 0.8;
+        tongue.position.set(Math.cos(angle) * 1.2, Math.sin(angle) * 0.35, Math.sin(angle) * 1.2);
+        tongue.lookAt(Math.cos(angle) * 3.4, Math.sin(angle) * 1.2, Math.sin(angle) * 3.4);
+        tongue.rotateX(Math.PI / 2);
+        group.add(tongue);
+        ownedShaders.push(tongue.material);
+        tongues.push({ mesh: tongue, phase: i * 1.1 });
       }
+      material = shell.material;
+      const smoke = smokeSprite(dark ? 0x2a1044 : 0x241610, 0.3, 5.5);
+      smoke.position.y = -1.3;
+      own(smoke.material);
+      group.add(smoke);
+      group.userData.tongues = tongues;
+    } else {
+      material = own(new THREE.MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 1.4,
+        roughness: 0.3,
+        metalness: 0.1,
+      }));
+      group.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.7, 2), material));
+      const sprite = new THREE.Sprite(glowMaterial(color));
+      sprite.scale.setScalar(4.6);
+      group.add(sprite);
     }
     group.scale.setScalar(this.projectileScale);
-    const holder = { group, material, kind: p.k, x: p.x, z: p.z, dx: p.dx, dz: p.dz, trail: 0 };
+    const holder = {
+      group,
+      material,
+      materials: ownedMaterials,
+      shaders: ownedShaders,
+      kind: p.k,
+      x: p.x,
+      z: p.z,
+      dx: p.dx,
+      dz: p.dz,
+      trail: 0,
+      age: 0,
+      smoke: 0,
+    };
     group.position.set(p.x, this.ground(p.x, p.z) + 2.3, p.z);
     this.group.add(group);
     this.projectiles.set(p.id, holder);
@@ -663,6 +873,17 @@ export class EffectsView {
       seen.add(p.id);
       let holder = this.projectiles.get(p.id);
       if (!holder) holder = this.createProjectile(p);
+      holder.age = (holder.age || 0) + dt;
+      if (holder.shaders) {
+        for (const shader of holder.shaders) {
+          if (shader.uniforms && shader.uniforms.uTime) shader.uniforms.uTime.value += dt;
+        }
+      }
+      if (holder.group.userData.tongues) {
+        for (const tongue of holder.group.userData.tongues) {
+          tongue.mesh.scale.set(1, 0.8 + Math.sin(holder.age * 12 + tongue.phase) * 0.35, 1);
+        }
+      }
       const lerp = Math.min(1, dt * 28);
       holder.x += (p.x - holder.x) * lerp;
       holder.z += (p.z - holder.z) * lerp;
@@ -705,6 +926,22 @@ export class EffectsView {
           size: 3.5 * this.projectileScale,
         });
       }
+      // Humo y polvo volumétricos, más espaciados que las chispas.
+      holder.smoke -= dt;
+      if (holder.smoke <= 0) {
+        holder.smoke = holder.kind === 'rock' ? 0.1 : holder.kind === 'jet' || holder.kind === 'waterprison' ? 0.12 : 0.16;
+        if (holder.kind === 'fireball' || holder.kind === 'lavabolt' || holder.kind === 'abyssflame') {
+          this.addPuff(holder.x, y + 0.6, holder.z, 0x2a1a14, 3.8, 0.55, { vy: 1.2, opacity: 0.2, grow: 2.4 });
+        } else if (holder.kind === 'rock') {
+          this.addPuff(holder.x, y - 0.4, holder.z, 0x7a6448, 3.6, 0.7, { vy: 0.5, opacity: 0.22, grow: 2 });
+        } else if (holder.kind === 'icelance') {
+          this.addPuff(holder.x, y, holder.z, 0xbfefff, 3.2, 0.6, { vy: 0.8, opacity: 0.16, grow: 1.8 });
+        } else if (holder.kind === 'jet' || holder.kind === 'waterprison') {
+          this.addPuff(holder.x, y + 0.4, holder.z, 0x9fdcff, 3.8, 0.55, { vy: 1, opacity: 0.16, grow: 1.8 });
+        } else if (holder.kind === 'shadowbolt' || holder.kind === 'abyssflame') {
+          this.addPuff(holder.x, y, holder.z, 0x3a1054, 4.2, 0.6, { vy: 0.8, opacity: 0.2, grow: 2 });
+        }
+      }
     }
     for (const [id, holder] of this.projectiles) {
       if (seen.has(id)) continue;
@@ -712,7 +949,8 @@ export class EffectsView {
       holder.group.traverse((object) => {
         if (object.geometry && !object.isSprite) object.geometry.dispose();
       });
-      if (holder.material) holder.material.dispose();
+      if (holder.materials) holder.materials.forEach((mat) => mat.dispose());
+      else if (holder.material) holder.material.dispose();
       this.projectiles.delete(id);
     }
   }
@@ -725,12 +963,16 @@ export class EffectsView {
     const y = this.ground(zone.x, zone.z);
     const holder = { group, zone, color, y, particles: 0, materials: [], geometries: [], meshes: [] };
 
-    const add = (mesh) => {
-      group.add(mesh);
-      holder.meshes.push(mesh);
-      if (mesh.material) holder.materials.push(mesh.material);
-      if (mesh.geometry) holder.geometries.push(mesh.geometry);
-      return mesh;
+    const add = (object) => {
+      group.add(object);
+      object.traverse((node) => {
+        if (!node.isMesh && !node.isSprite && !node.isLine) return;
+        holder.meshes.push(node);
+        if (node.material) holder.materials.push(node.material);
+        // La geometría de los sprites es compartida por Three: no se libera.
+        if (node.geometry && !node.isSprite) holder.geometries.push(node.geometry);
+      });
+      return object;
     };
 
     const flatDisc = (radius, discColor, opacity = 0.5, additive = true) => {
@@ -755,12 +997,11 @@ export class EffectsView {
     switch (zone.t) {
       case 'lava': {
         const dark = zone.s === 'dark';
-        holder.disc = flatDisc(zone.r, dark ? 0x5b1a8a : 0xff5a1f, 0.55);
-        flatDisc(zone.r * 0.7, dark ? 0xb06bff : 0xffc14d, 0.5);
-        const glow = new THREE.Sprite(glowMaterial(dark ? 0xb06bff : 0xff8a3c));
-        glow.scale.setScalar(zone.r * 3.2);
-        glow.position.y = 1.4;
-        group.add(glow);
+        // Corteza negra agrietada con vetas incandescentes, no dos discos.
+        add(groundDecal(dark ? 'dark' : 'magma', zone.r));
+        add(crackGlow(zone.r * 0.88, dark ? 0xb06bff : 0xff7a24, 0.55));
+        holder.disc = flatDisc(zone.r, dark ? 0x6a1a9a : 0xff4a12, 0.16, false);
+        holder.bubbles = 0;
         break;
       }
       case 'wall': {
@@ -769,24 +1010,37 @@ export class EffectsView {
         // Muros no ígneos: bloques de piedra, agujas de hielo o una maraña de
         // raíces. Comparten forma de fila para que se lean como barrera.
         if (style !== 'fire') {
-          const blockColor = style === 'stone' ? 0x8a7a62 : style === 'ice' ? 0xbfefff : 0x4f8f46;
-          const count = 7;
+          const icy = style === 'ice';
+          const stone = style === 'stone';
+          const blockColor = stone ? 0x8a7a62 : icy ? 0xbfefff : 0x4f8f46;
+          const count = 8;
           const step = width / count;
           for (let i = 0; i < count; i++) {
             const offset = -width / 2 + step * (i + 0.5);
             const height = 22 + (i % 3) * 8 + Math.random() * 5;
-            const geometry =
-              style === 'ice'
-                ? new THREE.ConeGeometry(step * 0.4, height, 5)
-                : style === 'stone'
-                  ? new THREE.BoxGeometry(step * 0.94, height, 14)
-                  : new THREE.CylinderGeometry(step * 0.16, step * 0.28, height, 5);
-            const material = new THREE.MeshLambertMaterial({ color: blockColor, flatShading: true });
+            const geometry = icy
+              ? crystalShard(step * 0.34, height)
+              : stone
+                ? stoneBlockGeometry(step * 0.94, height, 14)
+                : rootGeometry(height, step * 0.14);
+            const material = icy
+              ? crystalMaterial(blockColor)
+              : stone
+                ? stoneMaterial(blockColor)
+                : barkMaterial(0x4f3a22);
             const block = new THREE.Mesh(geometry, material);
-            block.position.set(-zone.dz * offset, height * 0.5, zone.dx * offset);
+            block.position.set(-zone.dz * offset, icy || stone ? height * 0.5 : 0, zone.dx * offset);
             block.rotation.y = Math.atan2(zone.dx, zone.dz);
-            if (style === 'root') block.rotation.z = (Math.random() - 0.5) * 0.25;
+            if (!icy && !stone) block.rotation.z = (Math.random() - 0.5) * 0.25;
             add(block);
+          }
+          // Escombros y nieve al pie del muro: le dan asiento en el terreno.
+          if (stone) {
+            for (let i = 0; i < 7; i++) {
+              const rubble = new THREE.Mesh(rockGeometry(3 + Math.random() * 3, 0), stoneMaterial(0x6a5a46));
+              rubble.position.set((Math.random() - 0.5) * width, 1.5, (Math.random() - 0.5) * 18);
+              add(rubble);
+            }
           }
           break;
         }
@@ -915,11 +1169,18 @@ export class EffectsView {
         break;
       }
       case 'meteor': {
-        const material = new THREE.MeshBasicMaterial({ color: 0xff6a24, toneMapped: false });
-        const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(5, 1), material);
+        const material = stoneMaterial(0x3a281e, { emissive: 0x2a0a00, emissiveIntensity: 0.5 });
+        const mesh = new THREE.Mesh(rockGeometry(5.4, 1), material);
         mesh.position.y = 70;
         group.add(mesh);
         holder.meteor = mesh;
+        const meteorShell = new THREE.Mesh(
+          new THREE.IcosahedronGeometry(6.6, 2),
+          fireShellMaterial(0xffe0a0, 0xff4a0c)
+        );
+        meteorShell.material.uniforms.uRadius.value = 6.6;
+        mesh.add(meteorShell);
+        holder.meteorShaders = [meteorShell.material];
         holder.startD = Math.max(0.001, zone.d || 1);
         // Núcleo brillante más un halo amplio que tiñe el cielo.
         const glow = new THREE.Sprite(glowMaterial(0xffd08a));
@@ -976,41 +1237,30 @@ export class EffectsView {
         break;
       }
       case 'mud': {
-        // Barro opaco: mezcla normal para que se vea húmedo y no como un brillo.
-        flatDisc(zone.r, 0x4a3320, 0.92, false);
-        flatDisc(zone.r * 0.74, 0x6d4f2f, 0.85, false);
-        flatDisc(zone.r * 0.42, 0x8a6a41, 0.7, false);
+        // Barro opaco y húmedo: calcomanía de terreno y un velo de agua.
+        add(groundDecal('mud', zone.r, { opacity: 1.2 }));
+        holder.disc = flatDisc(zone.r * 0.8, 0x6d4f2f, 0.2, false);
         holder.bubbles = 0;
         break;
       }
       case 'steam': {
-        flatDisc(zone.r, 0xcfeaff, 0.1);
+        add(groundDecal('steam', zone.r));
         // El vapor son jirones sueltos, no una cúpula de cristal: sprites
         // grandes y suaves repartidos por la zona.
         holder.mists = [];
         holder.mistT = 0;
         for (let i = 0; i < 8; i++) {
-          const material = new THREE.SpriteMaterial({
-            map: makeGlowTexture(),
-            color: 0xe6f7ff,
-            transparent: true,
-            opacity: 0.18,
-            depthWrite: false,
-            blending: THREE.AdditiveBlending,
-            toneMapped: false,
-          });
-          const sprite = new THREE.Sprite(material);
+          const sprite = smokeSprite(0xe6f7ff, 0.18, zone.r * (0.85 + (i % 2) * 0.3));
           const angle = (i / 8) * Math.PI * 2;
           const radius = zone.r * (0.25 + (i % 3) * 0.24);
           sprite.position.set(Math.cos(angle) * radius, 6 + (i % 4) * 3.5, Math.sin(angle) * radius);
-          sprite.scale.setScalar(zone.r * (0.85 + (i % 2) * 0.3));
           add(sprite);
           holder.mists.push({ sprite, y: sprite.position.y, phase: i * 0.8 });
         }
         break;
       }
       case 'sandstorm': {
-        flatDisc(zone.r, 0xd8b47a, 0.14);
+        add(groundDecal('sand', zone.r));
         // Pared baja de polvo en giro, más ancha abajo que arriba.
         const material = funnelMaterial(0xe8c98a, 0.26, 1.5);
         material.uniforms.uRadius.value = zone.r;
@@ -1041,12 +1291,16 @@ export class EffectsView {
             ];
         holder.icy = icy;
         for (const layer of cloudLayers) {
-          const material = new THREE.MeshBasicMaterial({
+          const material = new THREE.MeshStandardMaterial({
             color: layer.color,
+            map: noiseTexture(),
+            roughness: 1,
+            metalness: 0,
             transparent: true,
             opacity: layer.opacity,
             depthWrite: false,
             side: THREE.DoubleSide,
+            envMapIntensity: 0.2,
           });
           const cloud = new THREE.Mesh(
             new THREE.SphereGeometry(layer.r, 32, 16, 0, Math.PI * 2, 0, Math.PI * 0.6),
@@ -1065,8 +1319,8 @@ export class EffectsView {
         const main = styleColor(style);
         const accent = accentColor(style);
         holder.style = style;
-        flatDisc(zone.r, main, 0.22);
-        flatDisc(zone.r * 0.64, accent, 0.16);
+        add(groundDecal(style, zone.r));
+        holder.disc = flatDisc(zone.r, main, 0.1);
         const ring = new THREE.Mesh(
           new THREE.TorusGeometry(zone.r * 0.72, 2.6, 8, 64),
           new THREE.MeshBasicMaterial({
@@ -1084,15 +1338,15 @@ export class EffectsView {
         holder.ring = ring;
         const domeStyles = ['dark', 'frost', 'blizzard', 'polar', 'glacial', 'crystal', 'cursed', 'abyss'];
         if (domeStyles.includes(style)) {
+          const domeMaterial =
+            style === 'dark' || style === 'cursed'
+              ? darkMaterial(0x0a0512, 0xb06bff)
+              : ['ice', 'crystal', 'frost', 'blizzard', 'polar', 'glacial', 'slippery'].includes(style)
+                ? crystalMaterial(main, { opacity: 0.2 })
+                : energyMaterial(main, { density: 0.35, speed: 3 });
           const dome = new THREE.Mesh(
-            new THREE.SphereGeometry(zone.r, 26, 12, 0, Math.PI * 2, 0, Math.PI * 0.5),
-            new THREE.MeshBasicMaterial({
-              color: style === 'dark' || style === 'cursed' ? 0x140a24 : main,
-              transparent: true,
-              opacity: style === 'dark' || style === 'cursed' ? 0.34 : 0.16,
-              depthWrite: false,
-              side: THREE.DoubleSide,
-            })
+            new THREE.SphereGeometry(zone.r, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.5),
+            domeMaterial
           );
           dome.position.y = 0.4;
           add(dome);
@@ -1100,19 +1354,9 @@ export class EffectsView {
         }
         holder.mists = [];
         for (let i = 0; i < 6; i++) {
-          const material = new THREE.SpriteMaterial({
-            map: makeGlowTexture(),
-            color: main,
-            transparent: true,
-            opacity: 0.2,
-            depthWrite: false,
-            blending: THREE.AdditiveBlending,
-            toneMapped: false,
-          });
-          const sprite = new THREE.Sprite(material);
+          const sprite = smokeSprite(main, 0.16, zone.r * (0.65 + (i % 2) * 0.2));
           const angle = (i / 6) * Math.PI * 2;
-          sprite.position.set(Math.cos(angle) * zone.r * 0.6, 3 + (i % 3) * 2.4, Math.sin(angle) * zone.r * 0.6);
-          sprite.scale.setScalar(zone.r * 0.7);
+          sprite.position.set(Math.cos(angle) * zone.r * 0.55, 3 + (i % 3) * 2.4, Math.sin(angle) * zone.r * 0.55);
           add(sprite);
           holder.mists.push({ sprite, baseY: sprite.position.y, phase: i * 0.9 });
         }
@@ -1120,29 +1364,41 @@ export class EffectsView {
         break;
       }
       case 'prison': {
-        const main = styleColor(zone.s);
-        flatDisc(zone.r, main, 0.3);
-        const bars = 12;
+        const style = zone.s || 'ice';
+        const main = styleColor(style);
+        add(groundDecal(style, zone.r));
+        const icy = ['ice', 'glacial', 'crystal'].includes(style);
+        const green = ['nature', 'overgrowth'].includes(style);
+        const bars = 9;
         for (let i = 0; i < bars; i++) {
           const angle = (i / bars) * Math.PI * 2;
-          const material = new THREE.MeshBasicMaterial({
-            color: main,
-            transparent: true,
-            opacity: 0.55,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            side: THREE.DoubleSide,
-            toneMapped: false,
-          });
-          const bar = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.8, 26, 6, 1, true), material);
-          bar.position.set(Math.cos(angle) * zone.r * 0.72, 13, Math.sin(angle) * zone.r * 0.72);
-          bar.rotation.z = Math.cos(angle) * 0.12;
-          bar.rotation.x = Math.sin(angle) * 0.12;
-          add(bar);
+          const radius = zone.r * 0.8;
+          const x = Math.cos(angle) * radius;
+          const z = Math.sin(angle) * radius;
+          if (icy) {
+            const cluster = crystalCluster(zone.r * 0.2, 3, i % 2 ? 0xbfefff : 0xd8f8ff);
+            cluster.position.set(x, 0, z);
+            add(cluster);
+          } else if (green) {
+            const root = new THREE.Mesh(rootGeometry(26 + Math.random() * 16, 2.6), barkMaterial(0x4a3524));
+            root.position.set(x, 0, z);
+            root.rotation.z = (Math.random() - 0.5) * 0.25;
+            add(root);
+          } else {
+            const bar = new THREE.Mesh(stoneBlockGeometry(5.5, 26 + Math.random() * 10, 5.5), stoneMaterial(0x6a5a46));
+            bar.position.set(x, 14, z);
+            bar.rotation.y = angle;
+            add(bar);
+          }
         }
+        const domeMaterial = style === 'abyss' || style === 'dark'
+          ? darkMaterial(0x0a0512, 0xb06bff)
+          : icy
+            ? crystalMaterial(0xbfefff, { opacity: 0.16 })
+            : energyMaterial(main, { density: 0.4, speed: 3 });
         const dome = new THREE.Mesh(
-          new THREE.SphereGeometry(zone.r * 0.8, 24, 10, 0, Math.PI * 2, 0, Math.PI * 0.5),
-          new THREE.MeshBasicMaterial({ color: main, transparent: true, opacity: 0.22, wireframe: true, depthWrite: false })
+          new THREE.SphereGeometry(zone.r * 0.85, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.5),
+          domeMaterial
         );
         dome.position.y = 0.3;
         add(dome);
@@ -1157,9 +1413,12 @@ export class EffectsView {
           const radius = i === 0 ? 0 : zone.r * (0.3 + Math.random() * 0.6);
           const height = 18 + Math.random() * 26;
           const spikeColor = zone.s === 'crystal' ? 0xbfefff : zone.s === 'earth' ? 0x9a8567 : styleColor(zone.s, 0x9a8567);
+          const crystal = zone.s === 'crystal';
           const spike = new THREE.Mesh(
-            new THREE.ConeGeometry(3.4 + Math.random() * 2.6, height, 5),
-            new THREE.MeshLambertMaterial({ color: spikeColor, flatShading: true })
+            crystal
+              ? crystalShard(3.8 + Math.random() * 2.4, height)
+              : new THREE.ConeGeometry(3.4 + Math.random() * 2.6, height, 6),
+            crystal ? crystalMaterial(0xbfefff) : stoneMaterial(spikeColor)
           );
           spike.position.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
           spike.rotation.z = (Math.random() - 0.5) * 0.3;
@@ -1168,61 +1427,65 @@ export class EffectsView {
           add(spike);
           holder.spikes.push({ mesh: spike, height });
         }
-        flatDisc(zone.r, styleColor(zone.s), 0.18);
+        add(groundDecal(zone.s || 'earth', zone.r));
         break;
       }
       case 'geyser': {
-        const main = styleColor(zone.s, 0x9fe8ff);
+        add(groundDecal('water', zone.r));
+        const columnMaterial = waterMaterial(0x0d4f78, 0xd8f8ff);
         const column = new THREE.Mesh(
-          new THREE.CylinderGeometry(zone.r * 0.2, zone.r * 0.5, 46, 20, 1, true),
-          new THREE.MeshBasicMaterial({
-            color: main,
-            transparent: true,
-            opacity: 0.5,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            side: THREE.DoubleSide,
-            toneMapped: false,
-          })
+          new THREE.CylinderGeometry(zone.r * 0.18, zone.r * 0.5, 46, 24, 12, true),
+          columnMaterial
         );
         column.position.y = 23;
         add(column);
         holder.column = column;
-        flatDisc(zone.r, 0x63d9ff, 0.3);
+        const foam = smokeSprite(0xd8f8ff, 0.22, zone.r * 0.75);
+        foam.position.y = 45;
+        add(foam);
+        holder.foam = foam;
+        const splash = new THREE.Mesh(
+          new THREE.RingGeometry(zone.r * 0.4, zone.r * 0.55, 28),
+          energyMaterial(0x9fe8ff, { density: 0.4, speed: 4 })
+        );
+        splash.rotation.x = -Math.PI / 2;
+        splash.position.y = 0.5;
+        add(splash);
+        holder.splash = splash;
         break;
       }
       case 'tree': {
         const trunk = new THREE.Mesh(
-          new THREE.CylinderGeometry(5, 8, 42, 7),
-          new THREE.MeshLambertMaterial({ color: 0x6b4a2a, flatShading: true })
+          new THREE.CylinderGeometry(5, 8, 42, 9, 4, false),
+          barkMaterial(0x6b4a2a)
         );
         trunk.position.y = 21;
         add(trunk);
+        for (let i = 0; i < 4; i++) {
+          const root = new THREE.Mesh(rootGeometry(20 + Math.random() * 12, 3), barkMaterial(0x5a3f24));
+          root.position.y = 1;
+          root.rotation.z = (i / 4) * Math.PI * 2;
+          add(root);
+        }
         holder.leaves = [];
         for (let i = 0; i < 4; i++) {
           const canopy = new THREE.Mesh(
-            new THREE.IcosahedronGeometry(22 - i * 3, 0),
-            new THREE.MeshLambertMaterial({ color: i % 2 ? 0x3f8f46 : 0x4faa55, flatShading: true })
+            rockGeometry(22 - i * 3, 1),
+            leafMaterial(i % 2 ? 0x3f8f46 : 0x4faa55)
           );
           canopy.position.y = 42 + i * 9;
           canopy.scale.set(1, 0.78, 1);
           add(canopy);
           holder.leaves.push(canopy);
         }
-        flatDisc(zone.r, 0x62d97a, 0.18);
+        add(groundDecal('nature', zone.r));
         break;
       }
       case 'summon': {
         const mob = zone.mob || 'golem';
         const body = new THREE.Group();
         if (mob === 'clone') {
-          const material = new THREE.MeshBasicMaterial({
-            color: 0x7a3fc4,
-            transparent: true,
-            opacity: 0.6,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-          });
+          const material = darkMaterial(0x1a0a2a, 0x9a5cff);
           const torso = new THREE.Mesh(new THREE.ConeGeometry(6, 20, 7), material);
           torso.position.y = 10;
           const head = new THREE.Mesh(new THREE.SphereGeometry(4, 10, 8), material);
@@ -1233,9 +1496,9 @@ export class EffectsView {
           body.add(torso, head, glow);
         } else {
           const scale = mob === 'guardian' ? 1.5 : 1;
-          const material = new THREE.MeshLambertMaterial({
-            color: mob === 'guardian' ? 0x6f7a52 : 0x8a7a62,
-            flatShading: true,
+          const material = stoneMaterial(mob === 'guardian' ? 0x6f7a52 : 0x8a7a62, {
+            emissive: mob === 'guardian' ? 0x0a2008 : 0x1a0e04,
+            emissiveIntensity: 0.35,
           });
           const torso = new THREE.Mesh(new THREE.DodecahedronGeometry(9 * scale, 0), material);
           torso.position.y = 12 * scale;
@@ -1248,10 +1511,21 @@ export class EffectsView {
           armR.position.x = 11 * scale;
           armR.rotation.z = -0.3;
           body.add(torso, head, armL, armR);
+          const eyeMaterial = new THREE.MeshStandardMaterial({
+            color: 0x0a1208,
+            emissive: mob === 'guardian' ? 0x9aff6a : 0xffa23a,
+            emissiveIntensity: 2.6,
+            roughness: 0.3,
+          });
+          for (const side of [-1, 1]) {
+            const eye = new THREE.Mesh(new THREE.SphereGeometry(0.9 * scale, 6, 5), eyeMaterial);
+            eye.position.set(side * 2 * scale, 24.5 * scale, 3.7 * scale);
+            body.add(eye);
+          }
           if (mob === 'guardian') {
             const crown = new THREE.Mesh(
               new THREE.IcosahedronGeometry(12, 0),
-              new THREE.MeshLambertMaterial({ color: 0x4f8f46, flatShading: true })
+              leafMaterial(0x4f8f46)
             );
             crown.position.y = 32;
             body.add(crown);
@@ -1264,17 +1538,39 @@ export class EffectsView {
         break;
       }
       case 'plasma': {
+        add(groundDecal('plasma', zone.r));
+        add(crackGlow(zone.r * 0.8, 0xff7bf0, 0.45));
         const orb = new THREE.Mesh(
           new THREE.IcosahedronGeometry(9, 2),
-          new THREE.MeshBasicMaterial({ color: 0xff7bf0, toneMapped: false })
+          energyMaterial(0xff7bf0, { density: 1.2, speed: 9 })
         );
-        orb.position.y = 12;
+        orb.position.y = 14;
         add(orb);
         holder.orb = orb;
-        const glow = new THREE.Sprite(glowMaterial(0xffb8ff));
-        glow.scale.setScalar(50);
-        orb.add(glow);
-        flatDisc(zone.r, 0xff7bf0, 0.3);
+        const core = new THREE.Mesh(
+          new THREE.IcosahedronGeometry(5.2, 2),
+          new THREE.MeshStandardMaterial({
+            color: 0xffd8ff,
+            emissive: 0xff7bf0,
+            emissiveIntensity: 3.2,
+            roughness: 0.25,
+            metalness: 0.1,
+          })
+        );
+        core.position.y = 14;
+        add(core);
+        holder.core = core;
+        holder.rings = [];
+        for (let i = 0; i < 2; i++) {
+          const ring = new THREE.Mesh(
+            new THREE.TorusGeometry(13 + i * 4, 0.5, 6, 40),
+            energyMaterial(0xffb8ff, { density: 0.8, speed: 6 })
+          );
+          ring.position.y = 14;
+          ring.rotation.x = Math.PI / 2 + (i ? 0.5 : 0);
+          add(ring);
+          holder.rings.push(ring);
+        }
         break;
       }
       default: {
@@ -1283,10 +1579,55 @@ export class EffectsView {
       }
     }
 
+    this.decorateZone(zone, holder, add);
     group.position.set(zone.x, y, zone.z);
     this.group.add(group);
     this.zones.set(zone.id, holder);
     return holder;
+  }
+
+  // Capa común a todas las zonas: terreno irregular, humo que sube y brasas,
+  // esporas o escarcha según el elemento. Evita que dos hechizos del mismo
+  // estilo se lean como el mismo disco de color.
+  decorateZone(zone, holder, add) {
+    const style = zone.s || zone.t;
+    const radius = zone.r || (zone.w ? zone.w * 0.5 : 60);
+    if (!['wave', 'meteor', 'tornado'].includes(zone.t) && radius > 24) {
+      add(groundDecal(style, radius * 0.95, { opacity: 0.9 }));
+    }
+
+    holder.smokes = [];
+    const addSmoke = (color, count, size, opacity, spread, height, rise) => {
+      for (let i = 0; i < count; i++) {
+        const sprite = smokeSprite(color, opacity, size * (0.75 + Math.random() * 0.5));
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.random() * spread;
+        sprite.position.set(Math.cos(angle) * dist, height + Math.random() * 4, Math.sin(angle) * dist);
+        add(sprite);
+        holder.smokes.push({
+          sprite,
+          baseX: sprite.position.x,
+          baseY: sprite.position.y,
+          phase: Math.random() * 12,
+          rise: rise * (0.6 + Math.random() * 0.8),
+          opacity,
+        });
+      }
+    };
+
+    const fire = ['fire', 'magma', 'wildfire', 'thermal', 'plasma', 'abyssflame'];
+    const icy = ['ice', 'crystal', 'frost', 'blizzard', 'polar', 'glacial', 'icestorm', 'steam'];
+    const green = ['nature', 'poison', 'pollen', 'growth', 'overgrowth', 'vital', 'cursed', 'wildfire'];
+    const dark = ['dark', 'abyss', 'cursed', 'frost', 'shadowbolt'];
+    const dusty = ['earth', 'sand', 'sandstorm', 'magma', 'crystal', 'guardian', 'mud'];
+    if (fire.includes(style)) addSmoke(0x2a1a12, zone.t === 'meteor' ? 2 : 3, radius * 0.42, 0.2, radius * 0.7, 4, 1.7);
+    if (icy.includes(style)) addSmoke(0xbfe6ff, 3, radius * 0.44, 0.12, radius * 0.8, 3, 0.9);
+    if (green.includes(style)) addSmoke(0x2a4a2a, 2, radius * 0.4, 0.16, radius * 0.8, 3, 0.8);
+    if (dark.includes(style)) addSmoke(0x180a28, 3, radius * 0.45, 0.22, radius * 0.8, 3, 1.1);
+    if (dusty.includes(style)) addSmoke(0x7a6448, 2, radius * 0.44, 0.16, radius * 0.8, 2, 0.7);
+    if (zone.t === 'tornado') addSmoke(0x8a7a62, 3, radius * 0.5, 0.18, radius * 0.6, 1, 1.2);
+
+    holder.ambient = 0.12;
   }
 
   syncZones(list, dt) {
@@ -1297,6 +1638,56 @@ export class EffectsView {
       if (!holder) holder = this.createZone(zone);
       holder.zone = zone;
       holder.age = (holder.age || 0) + dt;
+      for (const material of holder.materials) {
+        if (material.userData && material.userData.autoTime && material.uniforms && material.uniforms.uTime) {
+          material.uniforms.uTime.value += dt;
+        }
+      }
+      if (holder.smokes) {
+        for (const smoke of holder.smokes) {
+          const t = (holder.age * smoke.rise + smoke.phase) % 12;
+          smoke.sprite.position.y = smoke.baseY + t;
+          smoke.sprite.position.x = smoke.baseX + Math.sin(holder.age * 0.5 + smoke.phase) * 1.6;
+          smoke.sprite.material.opacity = smoke.opacity * Math.sin((Math.PI * t) / 12) * 0.9;
+        }
+      }
+      const style = zone.s || zone.t;
+      holder.ambient = (holder.ambient || 0) - dt;
+      if (holder.ambient <= 0 && !['wave', 'meteor'].includes(zone.t)) {
+        holder.ambient = 0.11;
+        const angle = Math.random() * Math.PI * 2;
+        const radius = Math.sqrt(Math.random()) * (zone.r || 70) * 0.85;
+        const x = zone.x + Math.cos(angle) * radius;
+        const z = zone.z + Math.sin(angle) * radius;
+        let color = 0;
+        let vy = 2;
+        let gravity = 2;
+        let life = 0.9;
+        let size = 3;
+        if (['fire', 'magma', 'wildfire', 'plasma', 'thermal'].includes(style)) {
+          color = Math.random() < 0.5 ? 0xffb44a : 0xff6a24;
+          vy = 7; gravity = -1.5; life = 1.2; size = 2.8;
+        } else if (['ice', 'crystal', 'frost', 'blizzard', 'polar', 'glacial', 'icestorm'].includes(style)) {
+          color = 0xd8f8ff; vy = 2.4; gravity = -0.6; size = 2.6;
+        } else if (['nature', 'poison', 'pollen', 'growth', 'overgrowth', 'vital', 'cursed'].includes(style)) {
+          color = 0xa8ff8a; vy = 1.6; gravity = -1.2; size = 2.4;
+        } else if (['dark', 'abyss', 'shadowbolt'].includes(style)) {
+          color = 0x9a5cff; vy = 1.8; gravity = -1; size = 3;
+        } else if (['earth', 'sand', 'sandstorm', 'guardian', 'mud'].includes(style)) {
+          color = 0xb99a68; vy = 1.2; gravity = 3; size = 3.6;
+        }
+        if (color) {
+          this.particles.emit(x, this.ground(x, z) + 0.5, z, color, {
+            vx: (Math.random() - 0.5) * 2,
+            vy,
+            vz: (Math.random() - 0.5) * 2,
+            gravity,
+            drag: 0.8,
+            life,
+            size,
+          });
+        }
+      }
       if (zone.t === 'tornado') {
         holder.spin = (holder.spin || 0) + dt;
         holder.group.position.set(zone.x, this.world.heightAt(zone.x, zone.z), zone.z);
@@ -1381,6 +1772,9 @@ export class EffectsView {
           holder.meteor.position.y = 8 + delay * 110;
           holder.meteor.rotation.x += dt * 3;
           holder.meteor.rotation.y += dt * 2;
+          if (holder.meteorShaders) {
+            for (const shader of holder.meteorShaders) shader.uniforms.uTime.value += dt;
+          }
           // El aviso late y se cierra sobre el punto de impacto: cuanto menos
           // queda, más intenso y rápido es el parpadeo.
           if (holder.warnRing) {
@@ -1591,6 +1985,14 @@ export class EffectsView {
           holder.orb.scale.setScalar(0.8 + Math.sin((holder.age || 0) * 9) * 0.12);
           holder.orb.rotation.y += dt * 3;
         }
+        if (holder.core) {
+          holder.core.scale.setScalar(0.9 + Math.sin((holder.age || 0) * 13) * 0.08);
+          holder.core.rotation.x += dt * 1.6;
+        }
+        if (holder.rings) {
+          holder.rings[0].rotation.z += dt * 1.8;
+          if (holder.rings[1]) holder.rings[1].rotation.y += dt * 2.4;
+        }
       } else if (zone.t === 'prison') {
         if (holder.dome) holder.dome.rotation.y += dt * 0.5;
       }
@@ -1686,6 +2088,56 @@ export class EffectsView {
         this.flashes.splice(i, 1);
       }
     }
+
+    // Humo volumétrico: crece, se frena y se disipa sin cortes.
+    for (let i = this.puffs.length - 1; i >= 0; i--) {
+      const puff = this.puffs[i];
+      puff.life -= dt;
+      if (puff.life <= 0) {
+        this.group.remove(puff.sprite);
+        puff.sprite.material.dispose();
+        this.puffs.splice(i, 1);
+        continue;
+      }
+      const t = 1 - puff.life / puff.maxLife;
+      puff.sprite.position.addScaledVector(puff.vel, dt);
+      puff.vel.multiplyScalar(Math.max(0, 1 - puff.drag * dt));
+      puff.vel.y += dt * 0.6;
+      puff.sprite.scale.setScalar(puff.size * (1 + t * puff.grow));
+      puff.sprite.material.opacity = puff.opacity * Math.min(1, puff.life / (puff.maxLife * 0.5)) * (0.7 + Math.sin(t * 9 + puff.size) * 0.1);
+    }
+
+    // Calcomanías del suelo: se apagan al final de su vida útil.
+    for (let i = this.decals.length - 1; i >= 0; i--) {
+      const decal = this.decals[i];
+      decal.life -= dt;
+      if (decal.life <= 0) {
+        this.group.remove(decal.group);
+        decal.group.traverse((node) => {
+          if (node.geometry) node.geometry.dispose();
+          if (node.material) node.material.dispose();
+        });
+        this.decals.splice(i, 1);
+        continue;
+      }
+      const fade = Math.min(1, decal.life / 2.2);
+      decal.group.traverse((node) => {
+        if (node.material && node.material.userData.baseOpacity !== undefined) {
+          node.material.opacity = node.material.userData.baseOpacity * fade;
+        }
+      });
+    }
+
+    for (const slot of this.lights) {
+      if (slot.life <= 0) continue;
+      slot.life -= dt;
+      if (slot.life <= 0) {
+        slot.light.visible = false;
+        slot.light.intensity = 0;
+      } else {
+        slot.light.intensity = slot.power * Math.pow(slot.life / slot.max, 2);
+      }
+    }
   }
 
   clear() {
@@ -1694,9 +2146,28 @@ export class EffectsView {
       holder.group.traverse((o) => {
         if (o.geometry && !o.isSprite) o.geometry.dispose();
       });
-      if (holder.material) holder.material.dispose();
+      if (holder.materials) holder.materials.forEach((mat) => mat.dispose());
+      else if (holder.material) holder.material.dispose();
     }
     this.projectiles.clear();
+    for (const puff of this.puffs) {
+      this.group.remove(puff.sprite);
+      puff.sprite.material.dispose();
+    }
+    this.puffs.length = 0;
+    for (const decal of this.decals) {
+      this.group.remove(decal.group);
+      decal.group.traverse((node) => {
+        if (node.geometry) node.geometry.dispose();
+        if (node.material) node.material.dispose();
+      });
+    }
+    this.decals.length = 0;
+    for (const slot of this.lights) {
+      slot.life = 0;
+      slot.light.intensity = 0;
+      slot.light.visible = false;
+    }
     for (const [, holder] of this.zones) {
       this.group.remove(holder.group);
       holder.materials.forEach((m) => m.dispose());
@@ -1725,6 +2196,7 @@ export class EffectsView {
   dispose() {
     this.clear();
     this.particles.dispose();
+    for (const slot of this.lights) this.group.remove(slot.light);
     this.scene.remove(this.group);
   }
 }
