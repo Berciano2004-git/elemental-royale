@@ -558,8 +558,11 @@ window.addEventListener('keydown', (event) => {
       audio.jump();
     }
   } else if (event.code === 'Tab') {
+    // Los ajustes anuncian Tab como «ver el grimorio»: se pausa y se abre la
+    // colección; al cerrarla se vuelve al menú de pausa.
     event.preventDefault();
     setPaused(true);
+    ui.openCollection('pause');
   }
 });
 

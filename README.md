@@ -62,7 +62,7 @@ npm start          # http://localhost:8080
 | **V** | Primera persona / vista elevada (el puntero se captura y se mira con el ratón) |
 | **Ñ** | Consola del Archimago (reconfigurable) |
 | **Rueda** | Acercar / alejar la cámara |
-| **Tab** | Menú rápido / grimorio de poderes |
+| **Tab** | Pausa y grimorio de poderes |
 | **Esc** | Pausa y ajustes |
 
 La cámara elevada mantiene el pivote fijo en el mago: el cursor solo decide hacia dónde
