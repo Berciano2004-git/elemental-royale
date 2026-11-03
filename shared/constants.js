@@ -26,12 +26,12 @@ export const SNAPSHOT_RATE = 20;
 export const LOBBY_TIME = 15;
 
 export const STORM_PHASES = [
-  { wait: 32, shrink: 24, radius: 950, dps: 3 },
-  { wait: 22, shrink: 20, radius: 640, dps: 5 },
-  { wait: 18, shrink: 17, radius: 400, dps: 8 },
-  { wait: 15, shrink: 14, radius: 230, dps: 12 },
-  { wait: 12, shrink: 11, radius: 110, dps: 16 },
-  { wait: 8, shrink: 8, radius: 45, dps: 24 },
+  { wait: 45, shrink: 30, radius: 1000, dps: 3 },
+  { wait: 30, shrink: 24, radius: 720, dps: 5 },
+  { wait: 24, shrink: 20, radius: 470, dps: 8 },
+  { wait: 20, shrink: 16, radius: 290, dps: 12 },
+  { wait: 16, shrink: 13, radius: 150, dps: 16 },
+  { wait: 12, shrink: 9, radius: 60, dps: 24 },
 ];
 
 export const ABILITY_COUNT = 4;
