@@ -960,6 +960,11 @@ export class EffectsView {
   createZone(zone) {
     const group = new THREE.Group();
     const color = elementColor(zone.s, 0xffffff);
+    // Los muros y olas usan una dirección; sin ella el quaternion daría NaN.
+    if (!Number.isFinite(zone.dx) || !Number.isFinite(zone.dz) || (zone.dx === 0 && zone.dz === 0)) {
+      zone.dx = 0;
+      zone.dz = 1;
+    }
     const y = this.ground(zone.x, zone.z);
     const holder = { group, zone, color, y, particles: 0, materials: [], geometries: [], meshes: [] };
 
@@ -1320,30 +1325,31 @@ export class EffectsView {
         const accent = accentColor(style);
         holder.style = style;
         add(groundDecal(style, zone.r));
-        holder.disc = flatDisc(zone.r, main, 0.1);
-        const ring = new THREE.Mesh(
-          new THREE.TorusGeometry(zone.r * 0.72, 2.6, 8, 64),
-          new THREE.MeshBasicMaterial({
-            color: main,
-            transparent: true,
-            opacity: 0.6,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            toneMapped: false,
-          })
-        );
-        ring.rotation.x = -Math.PI / 2;
-        ring.position.y = 1.6;
-        add(ring);
-        holder.ring = ring;
+        // Borde físico irregular: esquirlas de hielo o dientes de roca. Un aro
+        // luminoso sería legible pero parecería un icono, no terreno maldito.
+        const icyBoundary = ['ice', 'crystal', 'polar', 'glacial', 'frost', 'blizzard', 'slippery'].includes(style);
+        const boundaryMaterial = icyBoundary
+          ? crystalMaterial(main, { opacity: 0.55 })
+          : stoneMaterial(style === 'dark' || style === 'cursed' ? 0x2a2238 : 0x6a5a46);
+        for (let i = 0; i < 9; i++) {
+          const angle = (i / 9) * Math.PI * 2 + Math.random() * 0.25;
+          const x = Math.cos(angle) * zone.r * 0.95;
+          const z = Math.sin(angle) * zone.r * 0.95;
+          const mesh = icyBoundary
+            ? new THREE.Mesh(crystalShard(1.6 + Math.random(), 5 + Math.random() * 7), boundaryMaterial)
+            : new THREE.Mesh(rockGeometry(2.4 + Math.random() * 1.8, 0), boundaryMaterial);
+          mesh.position.set(x, icyBoundary ? 3.5 : 1, z);
+          mesh.rotation.y = angle;
+          add(mesh);
+        }
         const domeStyles = ['dark', 'frost', 'blizzard', 'polar', 'glacial', 'crystal', 'cursed', 'abyss'];
         if (domeStyles.includes(style)) {
           const domeMaterial =
             style === 'dark' || style === 'cursed'
               ? darkMaterial(0x0a0512, 0xb06bff)
               : ['ice', 'crystal', 'frost', 'blizzard', 'polar', 'glacial', 'slippery'].includes(style)
-                ? crystalMaterial(main, { opacity: 0.2 })
-                : energyMaterial(main, { density: 0.35, speed: 3 });
+                ? crystalMaterial(main, { opacity: 0.1, depthWrite: false })
+                : energyMaterial(main, { density: 0.28, speed: 3 });
           const dome = new THREE.Mesh(
             new THREE.SphereGeometry(zone.r, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.5),
             domeMaterial
@@ -1394,7 +1400,7 @@ export class EffectsView {
         const domeMaterial = style === 'abyss' || style === 'dark'
           ? darkMaterial(0x0a0512, 0xb06bff)
           : icy
-            ? crystalMaterial(0xbfefff, { opacity: 0.16 })
+            ? crystalMaterial(0xbfefff, { opacity: 0.08, depthWrite: false })
             : energyMaterial(main, { density: 0.4, speed: 3 });
         const dome = new THREE.Mesh(
           new THREE.SphereGeometry(zone.r * 0.85, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.5),
@@ -1432,7 +1438,8 @@ export class EffectsView {
       }
       case 'geyser': {
         add(groundDecal('water', zone.r));
-        const columnMaterial = waterMaterial(0x0d4f78, 0xd8f8ff);
+        const columnMaterial = waterMaterial(0x2a7a9a, 0xe6ffff);
+        columnMaterial.uniforms.uAlpha.value = 0.62;
         const column = new THREE.Mesh(
           new THREE.CylinderGeometry(zone.r * 0.18, zone.r * 0.5, 46, 24, 12, true),
           columnMaterial
@@ -1440,6 +1447,13 @@ export class EffectsView {
         column.position.y = 23;
         add(column);
         holder.column = column;
+        const foamCore = new THREE.Mesh(
+          new THREE.CylinderGeometry(zone.r * 0.1, zone.r * 0.26, 38, 16, 8, true),
+          energyMaterial(0xe6ffff, { density: 0.55, speed: 7 })
+        );
+        foamCore.position.y = 21;
+        add(foamCore);
+        holder.foamCore = foamCore;
         const foam = smokeSprite(0xd8f8ff, 0.22, zone.r * 0.75);
         foam.position.y = 45;
         add(foam);

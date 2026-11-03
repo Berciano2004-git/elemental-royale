@@ -383,6 +383,7 @@ export function waterMaterial(deep = 0x0d4f78, foam = 0x9fe8ff) {
       uFade: { value: 1 },
       uDeep: { value: new THREE.Color(deep) },
       uFoam: { value: new THREE.Color(foam) },
+      uAlpha: { value: 1 },
     },
     vertexShader: /* glsl */ `
       uniform float uTime;
@@ -405,6 +406,7 @@ export function waterMaterial(deep = 0x0d4f78, foam = 0x9fe8ff) {
       uniform float uFade;
       uniform vec3 uDeep;
       uniform vec3 uFoam;
+      uniform float uAlpha;
       varying vec2 vUv;
       varying vec3 vNormal;
       varying vec3 vView;
@@ -414,7 +416,7 @@ export function waterMaterial(deep = 0x0d4f78, foam = 0x9fe8ff) {
         float ripple = fbm3(vec3(vUv * 6.0, uTime * 0.5));
         float streak = smoothstep(0.58, 0.95, sin(vUv.y * 34.0 - uTime * 7.0 + ripple * 4.0) * 0.5 + 0.5);
         vec3 color = mix(uDeep, uFoam, fres * 0.75 + streak * 0.3 + ripple * 0.12);
-        float alpha = (0.48 + fres * 0.4 + streak * 0.15) * uFade;
+        float alpha = (0.42 + fres * 0.36 + streak * 0.15) * uFade * uAlpha;
         gl_FragColor = vec4(color, alpha);
       }
     `,
