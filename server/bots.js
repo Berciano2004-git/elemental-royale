@@ -13,6 +13,17 @@ const PROBE_RADIUS = 3.2;
 // rumbos que atravesaban un tronco por el medio.
 const PROBE_STEPS = [8, 16, 26];
 
+// Ritmo de la IA. Los bots siguen usando los mismos hechizos y la misma
+// simulación que el jugador; lo que cambia es su tiempo de reacción, la espera
+// entre lanzamientos y la precisión con la que anticipan el movimiento.
+const BOT_THINK_MIN = 0.42;
+const BOT_THINK_MAX = 0.76;
+const BOT_CAST_CD_MIN = 2.1;
+const BOT_CAST_CD_MAX = 3.4;
+const BOT_COMBO_CHANCE = 0.06;
+const BOT_AIM_LEAD = 0.18;
+const BOT_AIM_JITTER = 58;
+
 function rotated(ux, uz, angle) {
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
@@ -219,8 +230,8 @@ function chooseGoal(game, bot) {
 
 function predictedAim(bot, target, jitter) {
   return {
-    x: target.x + (target.velX || 0) * 0.28 + (Math.random() - 0.5) * jitter,
-    z: target.z + (target.velZ || 0) * 0.28 + (Math.random() - 0.5) * jitter,
+    x: target.x + (target.velX || 0) * BOT_AIM_LEAD + (Math.random() - 0.5) * jitter,
+    z: target.z + (target.velZ || 0) * BOT_AIM_LEAD + (Math.random() - 0.5) * jitter,
   };
 }
 
@@ -265,14 +276,14 @@ function tryCast(game, bot, target) {
   });
 
   const choice = options[0];
-  const jitter = 44 + distance * 0.13;
+  const jitter = BOT_AIM_JITTER + distance * 0.16;
   const aim = predictedAim(bot, target, jitter);
-  ai.castCd = 1.05 + Math.random() * 1.1;
+  ai.castCd = BOT_CAST_CD_MIN + Math.random() * (BOT_CAST_CD_MAX - BOT_CAST_CD_MIN);
   game.castAbility(bot, choice.slot, choice.index, aim.x, aim.z);
 
   const hasBoth = bot.slots[0] && bot.slots[1];
-  if (hasBoth && bot.comboCd <= 0 && bot.mana >= 35 && Math.random() < 0.14) {
-    const comboAim = predictedAim(bot, target, 40);
+  if (hasBoth && bot.comboCd <= 0 && bot.mana >= 35 && Math.random() < BOT_COMBO_CHANCE) {
+    const comboAim = predictedAim(bot, target, 55);
     game.castCombo(bot, comboAim.x, comboAim.z);
   }
 }
@@ -290,7 +301,7 @@ export function updateBots(game, dt) {
     ai.stuckTimer = (ai.stuckTimer || 0) + dt;
 
     if (ai.think <= 0) {
-      ai.think = 0.22 + Math.random() * 0.22;
+      ai.think = BOT_THINK_MIN + Math.random() * (BOT_THINK_MAX - BOT_THINK_MIN);
       chooseGoal(game, bot);
       if (Math.random() < 0.32) ai.strafe *= -1;
     }
@@ -315,7 +326,7 @@ export function updateBots(game, dt) {
       if (d > preferred + 70) {
         mx += nx;
         mz += nz;
-        sprint = d > 320 && bot.stamina > 30;
+        sprint = d > 380 && bot.stamina > 45;
       } else if (d < preferred - 90) {
         mx -= nx * 0.9;
         mz -= nz * 0.9;

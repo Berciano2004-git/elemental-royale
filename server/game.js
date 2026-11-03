@@ -42,6 +42,13 @@ const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 // Ajustes de administrador por jugador. Los límites son deliberadamente
 // generosos (es una herramienta de desarrollo), pero nunca dejan entrar NaN
 // ni valores que puedan romper la simulación.
+// Los bots comparten hechizos y simulación con el jugador, pero no deben
+// castigar con la misma frecuencia ni mover el mismo volumen de daño. Se
+// aplican en el servidor para que la reducción sea autoritativa y no dependa
+// de la configuración del cliente.
+const BOT_DAMAGE_SCALE = 0.62;
+const BOT_SPEED_SCALE = 0.86;
+
 const ADMIN_RANGES = {
   walkSpeed: [30, 220, PLAYER_SPEED],
   runMult: [0.8, 2.5, 1.32],
@@ -411,7 +418,7 @@ export function createGame(wss, options = {}) {
       const spot = spawns[spawnIndex++ % spawns.length];
       const bot = makePlayer(randomWizardName(), randomLook(), true, spot.x, spot.z);
       bot.ai = {
-        think: Math.random() * 0.3,
+        think: 0.35 + Math.random() * 0.5,
         goal: null,
         mode: 'loot',
         targetId: 0,
@@ -419,7 +426,7 @@ export function createGame(wss, options = {}) {
         stuck: 0,
         lastX: bot.x,
         lastZ: bot.z,
-        castCd: Math.random() * 0.8,
+        castCd: 1.2 + Math.random() * 1.2,
       };
       state.players.push(bot);
     }
@@ -1339,7 +1346,12 @@ export function createGame(wss, options = {}) {
     if (!target.alive || state.phase !== 'match' || amount <= 0) return;
     // Tope por impacto: ni una rareza legendaria con fuego ni una fusión
     // pueden borrar a un mago de un solo golpe.
-    let dmg = Math.min(amount, MAX_HIT_DAMAGE);
+    // La reducción protege al jugador de la presión de la IA. Entre bots se
+    // mantiene el daño normal para que las rondas no queden en tablas cuando
+    // los últimos supervivientes son todos controlados por el servidor.
+    const scale = source?.bot ? (target.bot ? 1 : BOT_DAMAGE_SCALE) : 1;
+    const scaled = amount * scale;
+    let dmg = Math.min(scaled, MAX_HIT_DAMAGE);
     if (target.shield > 0) {
       const absorbed = Math.min(target.shield, dmg);
       target.shield -= absorbed;
@@ -1518,6 +1530,9 @@ export function createGame(wss, options = {}) {
         if (p.input.sprint && p.stamina > 2) speed *= tune.runMult;
       }
       if (p.slowUntil > s.matchTime) speed *= p.slowFactor;
+      // La IA recorre el mapa con algo menos de velocidad para que una huida o
+      // un cambio de cobertura del jugador tengan margen de reacción.
+      if (p.bot) speed *= BOT_SPEED_SCALE;
       const airborne = p.jumpY > 0.01;
       const airFactor = airborne ? 0.15 + tune.airControl * 0.85 : 1;
       const rate = (mx || mz ? tune.accel : tune.decel) * airFactor;
