@@ -632,14 +632,14 @@ export function createGame(wss, options = {}) {
         const z = landmark.z + Math.sin(angle) * dist;
         if (!world.canStand(x, z, 3.4)) continue;
         const rarity = Math.random() < 0.22 ? 'legendary' : Math.random() < 0.5 ? 'epic' : 'rare';
-        spawnPickup('power', ELEMENT_KEYS[(Math.random() * 4) | 0], rarity, x, z);
+        spawnPickup('power', ELEMENT_KEYS[(Math.random() * ELEMENT_KEYS.length) | 0], rarity, x, z);
       }
     }
 
     // Un poder y un cristal de vida junto a cada punto de aparición.
     for (const spawn of spawns) {
       const near = findOpenSpot(world, spawn.x + (Math.random() - 0.5) * 40, spawn.z + (Math.random() - 0.5) * 40, Math.random, 6);
-      spawnPickup('power', ELEMENT_KEYS[(Math.random() * 4) | 0], rollRarity(), near.x, near.z);
+      spawnPickup('power', ELEMENT_KEYS[(Math.random() * ELEMENT_KEYS.length) | 0], rollRarity(), near.x, near.z);
       const nearHeal = findOpenSpot(world, spawn.x, spawn.z, Math.random, 14);
       spawnPickup('heal', null, 'common', nearHeal.x, nearHeal.z);
     }
