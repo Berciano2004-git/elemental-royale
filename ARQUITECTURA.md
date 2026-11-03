@@ -296,7 +296,7 @@ Cada elemento tiene cuatro habilidades con recarga, maná y alcance propios, má
 resuelve el efecto. El daño final es:
 
 ```
-daño = base × potenciaDeRareza × (fuego equipado ? 1,12 : 1) × tuning del servidor
+daño = min(30, base × potenciaDeRareza × (fuego equipado ? 1,12 : 1) × tuning × 0,72)
 ```
 
 | Elemento | Clic izq. | Clic der. | Tecla 4 | Tecla 5 |

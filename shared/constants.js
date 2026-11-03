@@ -36,6 +36,12 @@ export const STORM_PHASES = [
 
 export const ABILITY_COUNT = 4;
 
+// Ajuste global de combate: los hechizos hacen un 28 % menos de daño y ningún
+// impacto individual puede superar este tope, de modo que una sola habilidad
+// no elimine a un mago con la vida llena.
+export const DAMAGE_SCALE = 0.72;
+export const MAX_HIT_DAMAGE = 30;
+
 export function elementCss(key) {
   const meta = ELEMENTS[key] || ELEMENTS.fire;
   return '#' + meta.color.toString(16).padStart(6, '0');

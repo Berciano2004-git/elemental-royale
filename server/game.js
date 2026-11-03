@@ -2,11 +2,13 @@
 // Simula el mundo a 30 Hz y envía instantáneas a 20 Hz.
 
 import {
+  DAMAGE_SCALE,
   ELEMENT_KEYS,
   ELEMENTS,
   HATS,
   LOBBY_TIME,
   MATCH_PLAYERS,
+  MAX_HIT_DAMAGE,
   MAX_HP,
   MAX_MANA,
   MAX_STAMINA,
@@ -1097,7 +1099,7 @@ export function createGame(wss, options = {}) {
     p.aimX = aim.x;
     p.aimZ = aim.z;
 
-    const mult = rarityPower(slot.rarity) * (hasElement(p, 'fire') ? 1.12 : 1) * tune.power;
+    const mult = rarityPower(slot.rarity) * (hasElement(p, 'fire') ? 1.12 : 1) * tune.power * DAMAGE_SCALE;
     state.fx.push({ k: 'cast', x: p.x, z: p.z, el: element, ab: meta.id, i: p.id, c: colorCss(ELEMENTS[element].color) });
 
     // Todas las habilidades del grimario llevan su receta en `meta.fx`; el
@@ -1271,7 +1273,7 @@ export function createGame(wss, options = {}) {
     p.yaw = Math.atan2(aim.x - p.x, aim.z - p.z);
     p.aimX = aim.x;
     p.aimZ = aim.z;
-    const mult = (1 + (hasElement(p, 'fire') ? 0.12 : 0)) * tune.power;
+    const mult = (1 + (hasElement(p, 'fire') ? 0.12 : 0)) * tune.power * DAMAGE_SCALE;
 
     state.fx.push({ k: 'combo', x: aim.x, z: aim.z, id: combo.id, name: combo.name, i: p.id });
 
@@ -1332,7 +1334,9 @@ export function createGame(wss, options = {}) {
 
   function applyDamage(target, amount, source, options = {}) {
     if (!target.alive || state.phase !== 'match' || amount <= 0) return;
-    let dmg = amount;
+    // Tope por impacto: ni una rareza legendaria con fuego ni una fusión
+    // pueden borrar a un mago de un solo golpe.
+    let dmg = Math.min(amount, MAX_HIT_DAMAGE);
     if (target.shield > 0) {
       const absorbed = Math.min(target.shield, dmg);
       target.shield -= absorbed;

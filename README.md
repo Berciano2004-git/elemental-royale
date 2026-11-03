@@ -132,6 +132,10 @@ invencible). Cada elemento aporta dos hechizos y un pasivo al llevarlo equipado.
 La **energía mágica** (barra azul) limita el ritmo de lanzamiento; el **aguante** (barra verde)
 limita correr. Todos los hechizos tienen recarga visible en el HUD.
 
+El daño está ajustado al **72 %** y ningún impacto individual supera **30 puntos**: ninguna
+habilidad aislada puede eliminar a un mago con la vida llena, ni siquiera una fusión o una
+rareza legendaria. Los combates duran varios intercambios y el control y la posición importan.
+
 ---
 
 ## 🗺️ El mundo

@@ -87,22 +87,30 @@ async function castAbility(slot, index, ability, kind) {
     errors.push(`${ability.id}: el mago ya no está vivo`);
     return;
   }
-  // Las raíces y las prisiones de otros magos bloquean el lanzamiento: se
-  // espera a que el efecto pase en lugar de contarlo como un fallo del hechizo.
-  await waitFor(() => {
-    const cur = self();
-    return !cur || !cur.al || (!cur.rt && (cur.cd?.[slot]?.[index] || 0) <= 0);
-  }, 2500);
-
-  const beforeFxs = fxLog.length;
   const zoneIds = new Set((latest.zones || []).map((z) => z.id));
   const projectileIds = new Set((latest.projs || []).map((p) => p.id));
-  send('select', { slot });
-  send('cast', { slot, ability: index, ax: me.x + 260, az: me.z + 40 });
-  const confirmed = await waitFor(
-    () => fxLog.slice(beforeFxs).some((fx) => fx.k === 'cast' && fx.ab === ability.id),
-    1400
-  );
+  let beforeFxs = fxLog.length;
+  let confirmed = false;
+
+  // Las raíces y las prisiones de otros magos bloquean el lanzamiento: se
+  // espera a que el efecto pase y se reintenta una vez. La confirmación exige
+  // que el evento sea del jugador de prueba: los bots lanzan los mismos ids.
+  for (let attempt = 0; attempt < 2 && !confirmed; attempt++) {
+    await waitFor(() => {
+      const cur = self();
+      return !cur || !cur.al || (!cur.rt && (cur.cd?.[slot]?.[index] || 0) <= 0);
+    }, 2500);
+    beforeFxs = fxLog.length;
+    send('select', { slot });
+    send('cast', { slot, ability: index, ax: me.x + 260, az: me.z + 40 });
+    confirmed = await waitFor(
+      () =>
+        fxLog
+          .slice(beforeFxs)
+          .some((fx) => fx.k === 'cast' && fx.ab === ability.id && fx.i === selfId),
+      1400
+    );
+  }
   if (confirmed) seenAbilities.add(ability.id);
   else errors.push(`${ability.id}: el servidor no confirmó el lanzamiento`);
 
