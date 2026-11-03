@@ -1950,6 +1950,35 @@ export function createWizard(look) {
   let gazeHold = 0;
   let glanceTimer = 1.4 + Math.random() * 2.4;
 
+  // Los gestos procedurales se suman a la pose del clip con rotateX/Y/Z. Si el
+  // clip no anima ese hueso, la rotación se queda pegada en el hueso y se iría
+  // sumando fotograma a fotograma: el mago acababa girando sobre su propia
+  // cadera al quedarse quieto. Se guarda la pose limpia justo después del mixer
+  // y se restaura antes del siguiente, así cada fotograma parte de cero.
+  const poseBones = [
+    'Hips', 'Spine', 'Chest', 'Neck', 'Head',
+    'UpperLeg_L', 'UpperLeg_R', 'LowerLeg_L', 'LowerLeg_R',
+    'UpperArm_L', 'UpperArm_R', 'Forearm_L', 'Forearm_R',
+  ];
+  const basePose = new Map();
+
+  function restorePose() {
+    for (const [bone, quaternion] of basePose) bone.quaternion.copy(quaternion);
+  }
+
+  function snapshotPose() {
+    for (const name of poseBones) {
+      const bone = bones[name];
+      if (!bone) continue;
+      let quaternion = basePose.get(bone);
+      if (!quaternion) {
+        quaternion = new THREE.Quaternion();
+        basePose.set(bone, quaternion);
+      }
+      quaternion.copy(bone.quaternion);
+    }
+  }
+
   function updateGaze(dt, moving) {
     const gain = adminFlag('anim.secondary', true) ? adminValue('anim.head', 1) : 0;
     if (dead) {
@@ -2305,7 +2334,9 @@ export function createWizard(look) {
       rig.rotation.z = Math.sin(time * 2.6 + 0.6) * 0.07 * (swimLean / 1.15);
 
       if (mixer && !paused) {
+        restorePose();
         mixer.update(dt);
+        snapshotPose();
         rig.position.y = legLift;
         if (swimming && castTimer <= 0 && hitTimer <= 0) applySwimPose(time);
         else {
