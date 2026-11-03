@@ -278,7 +278,6 @@ export const GROUPS = [
           }),
           toggle('physics.enabled', 'Físicas activas', true),
           toggle('physics.groundSnap', 'Detección de suelo', true),
-          toggle('debug.colliders', 'Visualizar colisiones', false),
         ],
       },
     ],
@@ -355,8 +354,6 @@ export const GROUPS = [
         title: 'Control en caliente',
         params: [
           toggle('debug.freeze', 'Congelar movimiento', false),
-          toggle('physics.enabled', 'Físicas activas', true),
-          toggle('physics.groundSnap', 'Detección de suelo', true),
           { key: 'debug.teleportX', label: 'Destino X', kind: 'text', def: '0', hint: 'Coordenada dentro del mundo.' },
           { key: 'debug.teleportZ', label: 'Destino Z', kind: 'text', def: '0' },
         ],
