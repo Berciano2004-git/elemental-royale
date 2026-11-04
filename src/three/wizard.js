@@ -61,6 +61,14 @@ const LEATHER_TONE = new THREE.Color('#4a3322');
 // cejas y los labios mantienen su color. Así el mago puede cambiar de tono sin
 // convertirse en una cara monocroma. Se cachea por textura y tono.
 const skinTintCache = new Map();
+// El atlas facial contiene dos ojos. Al teñir la piel se protegen por color el
+// blanco, el iris, la pupila y los labios; el resto de la isla facial sí cambia
+// de tono, incluidos los píxeles claros que antes quedaban como un parche.
+const SKIN_FACE_BOXES = [
+  { u0: 0.70, u1: 0.82, v0: 0.58, v1: 0.70 },
+  { u0: 0.50, u1: 0.66, v0: 0.76, v1: 0.90 },
+];
+
 function tintSkinTexture(map, skinHex) {
   if (!map || !map.image || !map.image.width) return map;
   const key = `${map.uuid}:${skinHex}`;
@@ -82,6 +90,12 @@ function tintSkinTexture(map, skinHex) {
   const tb = parseInt(hex.slice(5, 7), 16);
 
   for (let i = 0; i < data.length; i += 4) {
+    const pixel = i / 4;
+    const x = pixel % size;
+    const y = Math.floor(pixel / size);
+    const u = x / size;
+    const v = y / size;
+
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
@@ -90,10 +104,16 @@ function tintSkinTexture(map, skinHex) {
     const min = Math.min(r, g, b);
     const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
     const saturation = (max - min) / max;
-    // Piel: tono cálido, luminancia media y saturación moderada. Los ojos
-    // (blancos o oscuros), el pelo y los labios saturados quedan intactos.
-    const warm = r > b + 6 && r >= g - 4;
-    if (luma <= 0.22 || saturation <= 0.06 || saturation >= 0.58 || !warm) continue;
+    // En la isla facial se tiñe también la piel clara mate; fuera de ella se
+    // mantiene el umbral conservador para no tocar el pelo ni la ropa.
+    const inFace = SKIN_FACE_BOXES.some((box) => u >= box.u0 && u <= box.u1 && v >= box.v0 && v <= box.v1);
+    const warm = r > b + (inFace ? 2 : 6) && r >= g - (inFace ? 8 : 4);
+    if (inFace) {
+      const eyeWhite = luma > 0.65 && saturation < 0.12;
+      if (luma <= 0.2 || eyeWhite || saturation <= 0.02 || saturation >= 0.55 || !warm) continue;
+    } else if (luma <= 0.22 || saturation <= 0.06 || saturation >= 0.58 || !warm) {
+      continue;
+    }
     const shade = Math.min(1.18, Math.max(0.32, luma / 0.72));
     data[i] = Math.min(255, tr * shade);
     data[i + 1] = Math.min(255, tg * shade);

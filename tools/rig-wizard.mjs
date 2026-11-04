@@ -1399,20 +1399,14 @@ for (let t = 0; t < triangleCount; t++) {
   const neckish = bones.includes('Neck');
   const handish = bones.some((name) => name === 'Hand_L' || name === 'Hand_R');
 
-  // El centro de la cara (ojos, nariz y boca) se protege por posición: ahí el
-  // atlas tiene blancos y oscuros que no son ni piel ni pelo. Los ojos están
-  // hundidos en la cuenca, así que su caja llega por detrás de la superficie y
-  // se queda antes del flequillo. El resto de la cabeza y el cuello lo decide
-  // el color pintado: castaño para flequillo, patillas y nuca; melocotón para
-  // cara, orejas y cuello.
-  const coreFace =
-    (Math.abs(cx) < 0.10 && cy > 1.48 && cy < 1.60 && cz > 0.02) ||
-    (Math.abs(cx) < 0.08 && cy >= 1.60 && cy < 1.715 && cz > -0.07 && cz < 0.105);
-
   let region;
   if (handSkin[t] || handish) region = REGION.SKIN;
   else if (headish || neckish) {
-    region = coreFace || isSkinTriangle(t) ? REGION.SKIN : REGION.HAIR;
+    // La cabeza se queda entera en una sola primitiva. Partirla por color
+    // duplicaba vértices y arrastraba el flequillo y los ojos a otras regiones:
+    // aparecían cuñas de piel, ojos tapados y costuras. El atlas de color ya
+    // conserva ojos, boca y pelo; el cliente solo tiñe los píxeles de piel.
+    region = REGION.SKIN;
   } else if (earSkin[t] && isSkinTriangle(t)) region = REGION.SKIN;
   // La tela la decide el color pintado: crema claro es túnica; marrón es
   // pantalón, cinturón o botas y conserva su textura original.
