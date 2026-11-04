@@ -61,45 +61,6 @@ const LEATHER_TONE = new THREE.Color('#4a3322');
 // cejas y los labios mantienen su color. Así el mago puede cambiar de tono sin
 // convertirse en una cara monocroma. Se cachea por textura y tono.
 const skinTintCache = new Map();
-
-// El óvalo facial del atlas lleva pintadas cejas y pestañas muy gruesas. Al
-// estirarse sobre la malla low-poly se convierten en triángulos oscuros dentro
-// del ojo. Se limpia solo la banda alrededor de cada ojo; el iris, la pupila y
-// la boca quedan fuera de la zona tratada.
-const SKIN_EYE_BANDS = [
-  { u0: 0.728, u1: 0.805, v0: 0.605, v1: 0.657 },
-  { u0: 0.537, u1: 0.612, v0: 0.812, v1: 0.862 },
-];
-const SKIN_EYE_SAFE = [
-  { cx: 0.757, cy: 0.632, rx: 0.015, ry: 0.011 },
-  { cx: 0.575, cy: 0.836, rx: 0.015, ry: 0.011 },
-];
-
-function cleanSkinEyeBands(data, size, r, g, b) {
-  for (const band of SKIN_EYE_BANDS) {
-    const x0 = Math.floor(band.u0 * size);
-    const x1 = Math.ceil(band.u1 * size);
-    const y0 = Math.floor(band.v0 * size);
-    const y1 = Math.ceil(band.v1 * size);
-    for (let y = y0; y < y1; y += 1) {
-      for (let x = x0; x < x1; x += 1) {
-        const inEye = SKIN_EYE_SAFE.some((eye) => {
-          const nx = (x / size - eye.cx) / eye.rx;
-          const ny = (y / size - eye.cy) / eye.ry;
-          return nx * nx + ny * ny <= 1;
-        });
-        if (inEye) continue;
-        const i = (y * size + x) * 4;
-        const luma = (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
-        if (luma > 0.4) continue;
-        data[i] = r;
-        data[i + 1] = g;
-        data[i + 2] = b;
-      }
-    }
-  }
-}
-
 function tintSkinTexture(map, skinHex) {
   if (!map || !map.image || !map.image.width) return map;
   const key = `${map.uuid}:${skinHex}`;
@@ -138,7 +99,6 @@ function tintSkinTexture(map, skinHex) {
     data[i + 1] = Math.min(255, tg * shade);
     data[i + 2] = Math.min(255, tb * shade);
   }
-  cleanSkinEyeBands(data, size, tr, tg, tb);
   context.putImageData(image, 0, 0);
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -152,124 +112,6 @@ function tintSkinTexture(map, skinHex) {
   texture.needsUpdate = true;
   skinTintCache.set(key, texture);
   return texture;
-}
-
-// La malla de Piel incluye algunas piezas del flequillo que apuntan al pelo
-// oscuro del atlas. Al estirarse sobre la cara se leen como restos negros en
-// los ojos. Se detectan por componente (no por triángulo, para no romper la
-// cara) y se llevan a una isla de piel limpia. Los ojos y la isla facial se
-// respetan.
-const SKIN_CLEAN_UV = new THREE.Vector2(0.765, 0.655);
-const SKIN_EYE_BOXES = [
-  { u0: 0.70, u1: 0.82, v0: 0.58, v1: 0.70 },
-  { u0: 0.50, u1: 0.66, v0: 0.77, v1: 0.90 },
-];
-const SKIN_FACE_BOX = { u0: 0.70, u1: 0.82, v0: 0.58, v1: 0.70 };
-
-function cleanSkinGeometry(mesh, map) {
-  const geometry = mesh.geometry;
-  const uv = geometry?.attributes?.uv;
-  const position = geometry?.attributes?.position;
-  const index = geometry?.index;
-  if (!uv || !position || !index || geometry.userData.skinCleaned) return;
-  if (!map?.image || !map.image.width) return;
-
-  const size = Math.min(1024, map.image.width);
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  if (!context) return;
-  context.drawImage(map.image, 0, 0, size, size);
-  const pixels = context.getImageData(0, 0, size, size).data;
-  geometry.userData.skinCleaned = true;
-
-  const sampleLuma = (u, v) => {
-    const x = Math.max(0, Math.min(size - 1, Math.round(u * size)));
-    const y = Math.max(0, Math.min(size - 1, Math.round(v * size)));
-    const i = (y * size + x) * 4;
-    return (0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2]) / 255;
-  };
-
-  const triangleCount = index.count / 3;
-  const parent = new Int32Array(triangleCount);
-  for (let i = 0; i < triangleCount; i += 1) parent[i] = i;
-  const find = (i) => {
-    while (parent[i] !== i) {
-      parent[i] = parent[parent[i]];
-      i = parent[i];
-    }
-    return i;
-  };
-  const join = (a, b) => {
-    const rootA = find(a);
-    const rootB = find(b);
-    if (rootA !== rootB) parent[rootB] = rootA;
-  };
-
-  const byVertex = new Map();
-  for (let t = 0; t < triangleCount; t += 1) {
-    for (let c = 0; c < 3; c += 1) {
-      const vertex = index.getX(t * 3 + c);
-      const list = byVertex.get(vertex);
-      if (list) list.push(t);
-      else byVertex.set(vertex, [t]);
-    }
-  }
-  for (const list of byVertex.values()) {
-    for (let i = 1; i < list.length; i += 1) join(list[0], list[i]);
-  }
-
-  const groups = new Map();
-  for (let t = 0; t < triangleCount; t += 1) {
-    const root = find(t);
-    if (!groups.has(root)) {
-      groups.set(root, {
-        triangles: [],
-        vertices: new Set(),
-        min: [Infinity, Infinity, Infinity],
-        max: [-Infinity, -Infinity, -Infinity],
-        uvMin: [Infinity, Infinity],
-        uvMax: [-Infinity, -Infinity],
-      });
-    }
-    const group = groups.get(root);
-    group.triangles.push(t);
-    for (let c = 0; c < 3; c += 1) {
-      const vertex = index.getX(t * 3 + c);
-      group.vertices.add(vertex);
-      for (let component = 0; component < 3; component += 1) {
-        const value = position.getComponent(vertex, component);
-        group.min[component] = Math.min(group.min[component], value);
-        group.max[component] = Math.max(group.max[component], value);
-      }
-      const u = uv.getX(vertex);
-      const v = uv.getY(vertex);
-      group.uvMin[0] = Math.min(group.uvMin[0], u);
-      group.uvMin[1] = Math.min(group.uvMin[1], v);
-      group.uvMax[0] = Math.max(group.uvMax[0], u);
-      group.uvMax[1] = Math.max(group.uvMax[1], v);
-    }
-  }
-
-  for (const group of groups.values()) {
-    if (group.max[1] < 1.55 || group.min[1] > 1.9) continue;
-    if (group.max[0] < -0.2 || group.min[0] > 0.2) continue;
-    const insideBox = (box) => group.uvMin[0] >= box.u0 && group.uvMax[0] <= box.u1
-      && group.uvMin[1] >= box.v0 && group.uvMax[1] <= box.v1;
-    if (SKIN_EYE_BOXES.some(insideBox) || insideBox(SKIN_FACE_BOX)) continue;
-
-    let luma = 0;
-    for (const t of group.triangles) {
-      const u = (uv.getX(index.getX(t * 3)) + uv.getX(index.getX(t * 3 + 1)) + uv.getX(index.getX(t * 3 + 2))) / 3;
-      const v = (uv.getY(index.getX(t * 3)) + uv.getY(index.getX(t * 3 + 1)) + uv.getY(index.getX(t * 3 + 2))) / 3;
-      luma += sampleLuma(u, v);
-    }
-    if (luma / group.triangles.length >= 0.38) continue;
-
-    for (const vertex of group.vertices) uv.setXY(vertex, SKIN_CLEAN_UV.x, SKIN_CLEAN_UV.y);
-  }
-  uv.needsUpdate = true;
 }
 
 let glowTexture = null;
@@ -1999,7 +1841,6 @@ export function createWizard(look) {
           }
           let skinSource = null;
           if (material.name === 'Piel') {
-            cleanSkinGeometry(object, material.map);
             skinMaterial = material;
             skinSource = material.map;
             // El mapa de normales añadía grano a la piel. El color viene del
