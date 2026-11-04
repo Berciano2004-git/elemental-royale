@@ -10,6 +10,7 @@
     "test:match": "node scripts/test-match.mjs",
     "test:end": "node scripts/test-end.mjs",
     "test:spells": "node scripts/test-spells.mjs",
+    "test:bots": "node scripts/test-bots.mjs",
     "history": "node scripts/archil-history.mjs",
     "rig:optimize": "node tools/optimize-wizard.mjs",
     "rig": "node tools/rig-wizard.mjs",

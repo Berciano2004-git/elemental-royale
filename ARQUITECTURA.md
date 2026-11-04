@@ -61,6 +61,7 @@ npm start          # producción: sirve dist/ y el WebSocket
 | `npm start` | `node server/index.js --prod`: sirve `dist/` con MIME y caché básicos. |
 | `npm run test:match` | Prueba de integración de una partida (necesita un servidor en 8081). |
 | `npm run test:end` | Observa una partida completa hasta el ganador y el reinicio de sala. |
+| `npm run test:bots` | Comprueba sin servidor que los bots huyen de las zonas enemigas. |
 | `npm run rig`, `rig:optimize`, `rig:audit` | Pipeline del modelo del mago y su diagnóstico. |
 
 Variables de entorno:
@@ -371,8 +372,10 @@ tenga más bajas y vida.
 - Esquivan obstáculos con tres sondas por delante (8, 16 y 26 unidades) y eligen el desvío
   más corto, manteniéndolo medio segundo para no oscilar. Así rodean troncos y rocas en vez
   de empujar de frente; el servidor sigue validando cada paso.
-- Detectan atascos comparando su posición, cambian de lado y recalculan el rumbo sin
-  abandonar el objetivo (antes podían ponerse a vagar en plena huida de la tormenta).
+- Esquivan las zonas enemigas: eligen la amenaza más urgente (no la más cercana), salen
+  corriendo si están dentro y mantienen la huida 0,4 s para no oscilar en el borde. Cubren
+  lava, muros lineales, meteoritos, pinchos, géiseres, plasma y campos de daño; sus propias
+  zonas y las invocaciones no activan la huida.
 
 ---
 

@@ -24,6 +24,8 @@ const BOT_COMBO_CHANCE = 0.06;
 const BOT_AIM_LEAD = 0.12;
 const BOT_MISS_CHANCE = 0.34;
 const BOT_AIM_JITTER = 8;
+const HAZARD_MARGIN = 18;
+const DODGE_MEMORY = 0.4;
 
 function rotated(ux, uz, angle) {
   const cos = Math.cos(angle);
@@ -154,6 +156,89 @@ function outsideSafe(game, bot) {
   if (!storm) return false;
   const target = storm.next || { x: storm.cx, z: storm.cz, r: storm.r };
   return Math.hypot(bot.x - target.x, bot.z - target.z) > target.r - 90;
+}
+
+// Las zonas enemigas no son decorado: el bot tiene que salir de ellas. Se
+// elige la amenaza más urgente, no la más cercana, para que un meteorito a
+// punto de caer pese más que una placa de hielo que solo ralentiza.
+function hazardDirection(game, bot) {
+  let best = null;
+  for (const zone of game.zones || []) {
+    if (!zone || zone.owner === bot.id) continue;
+    if (zone.type === 'tree' || zone.type === 'summon' || zone.type === 'wave') continue;
+    // Un géiser sigue golpeando después de su primer aviso, aunque su delay
+    // ya sea negativo; las demás zonas de impacto de un solo golpe dejan de
+    // ser peligrosas cuando `struck` está activo.
+    const active = (zone.dps || 0) > 0 || (zone.delay || 0) > 0 || zone.type === 'geyser';
+    if (!active) continue;
+
+    let nx = 0;
+    let nz = 0;
+    let depth = 0;
+    let radius = 0;
+    let inside = false;
+
+    if (zone.type === 'wall') {
+      const rx = bot.x - zone.x;
+      const rz = bot.z - zone.z;
+      const along = rx * (zone.dx || 0) + rz * (zone.dz || 0);
+      const lateral = -rx * (zone.dz || 0) + rz * (zone.dx || 0);
+      const half = Math.max(12, (zone.width || 0) / 2);
+      const reach = half + HAZARD_MARGIN;
+      if (Math.abs(along) > 26 + HAZARD_MARGIN || Math.abs(lateral) > reach) continue;
+      const side = lateral >= 0 ? 1 : -1;
+      nx = -(zone.dz || 0) * side;
+      nz = (zone.dx || 0) * side;
+      if (!nx && !nz) nx = side;
+      depth = Math.max(0, reach - Math.abs(lateral));
+      radius = reach;
+      inside = Math.abs(lateral) < half;
+    } else {
+      const dx = bot.x - zone.x;
+      const dz = bot.z - zone.z;
+      const d = Math.hypot(dx, dz);
+      radius = Math.max(10, zone.r || 0);
+      const reach = radius + HAZARD_MARGIN;
+      if (d > reach) continue;
+      depth = reach - d;
+      inside = d < radius;
+      if (d < 0.001) {
+        // En el centro no hay una dirección «hacia fuera»: se elige una
+        // estable por bot para que no se quede oscilando dentro del área.
+        const angle = bot.id * 2.399 + (bot.ai.clock || 0);
+        nx = Math.cos(angle);
+        nz = Math.sin(angle);
+      } else {
+        nx = dx / d;
+        nz = dz / d;
+      }
+    }
+
+    const length = Math.hypot(nx, nz) || 1;
+    nx /= length;
+    nz /= length;
+    const imminent = zone.delay > 0 ? Math.max(0, 1 - zone.delay / 1.8) : 0;
+    const urgency = (depth / Math.max(1, radius)) * (1 + imminent * 0.9) + (inside ? 0.25 : 0);
+    if (!best || urgency > best.urgency) {
+      best = { x: nx, z: nz, urgency, inside };
+    }
+  }
+  return best;
+}
+
+// La huida se mantiene unos instantes aunque el bot ya haya salido del borde:
+// sin esa memoria, el objetivo de combate lo devolvería a la zona en el tick
+// siguiente y el bot vibraría justo encima del área.
+function dangerPush(game, bot) {
+  const ai = bot.ai;
+  const found = hazardDirection(game, bot);
+  if (found) {
+    ai.dodge = { ...found, until: ai.clock + DODGE_MEMORY };
+    return found;
+  }
+  if (ai.dodge && ai.dodge.until > ai.clock) return ai.dodge;
+  ai.dodge = null;
+  return null;
 }
 
 function chooseGoal(game, bot) {
@@ -378,6 +463,23 @@ export function updateBots(game, dt) {
         (ai.mode === 'safe' && d > 120) ||
         (ai.mode === 'flee' && d > 60) ||
         (ai.mode === 'loot' && d > 240);
+    }
+
+    // Huida de zonas enemigas. Dentro del área la evasión manda y se corre;
+    // en el borde se mezcla con el objetivo para no renunciar al combate por
+    // cualquier placa que solo roce al mago.
+    const danger = dangerPush(game, bot);
+    if (danger) {
+      if (danger.inside) {
+        mx = danger.x;
+        mz = danger.z;
+        sprint = true;
+      } else {
+        const escape = 0.7 + danger.urgency * 0.45;
+        mx = mx * 0.4 + danger.x * escape;
+        mz = mz * 0.4 + danger.z * escape;
+        sprint = sprint || danger.urgency > 0.35;
+      }
     }
 
     // Ataque local de obstáculos: gira el rumbo deseado lo justo para no

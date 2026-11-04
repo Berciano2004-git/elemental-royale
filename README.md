@@ -374,6 +374,7 @@ npm run test:spells    # recoge un cristal de cada elemento y lanza sus 32 hechi
 `test:match` comprueba el movimiento autoritativo, la recogida de poderes, el gasto de maná,
 la recarga, la creación de proyectiles y que una combinación genere su zona. `test:end` observa
 una partida con bots hasta el final y verifica que la sala vuelve a estar disponible.
+La reacción de la IA ante las zonas se puede comprobar sin servidor con `npm run test:bots`.
 
 El modelo se regenera con `npm run rig`; `npm run rig:audit` imprime el diagnóstico del
 esqueleto, los pesos y los clips. También se puede inspeccionar en
