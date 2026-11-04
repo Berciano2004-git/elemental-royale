@@ -56,17 +56,18 @@ const TINTS = { Tunica: 'robe', Piel: 'skin', Pelo: 'hair' };
 // Tono al que se acerca el cuero de los gorros cuando se tiñe.
 const LEATHER_TONE = new THREE.Color('#4a3322');
 
-// El atlas de piel del GLB trae sombreado pintado: bajo la mandíbula hay una
-// banda grisácea que no responde a la luz y que, al teñir la piel, se lee como
-// una mancha sucia entre cara y cuello. Se aplana la iluminación de gran escala
-// (difuminado) y se conservan los rasgos finos (ojos, cejas, boca), que siguen
-// en la textura. Se hace una sola vez y se comparte entre todos los magos.
-let skinMapCache = null;
-function cleanSkinTexture(map) {
+// El GLB conserva el atlas de color original de la piel. El taller tiñe la piel
+// recoloreando solo los píxeles cálidos de piel: el blanco del ojo, el iris, las
+// cejas y los labios mantienen su color. Así el mago puede cambiar de tono sin
+// convertirse en una cara monocroma. Se cachea por textura y tono.
+const skinTintCache = new Map();
+function tintSkinTexture(map, skinHex) {
   if (!map || !map.image || !map.image.width) return map;
-  if (skinMapCache && skinMapCache.source === map) return skinMapCache.texture;
-  const size = 512;
-  const lowSize = 16;
+  const key = `${map.uuid}:${skinHex}`;
+  const cached = skinTintCache.get(key);
+  if (cached) return cached;
+
+  const size = Math.min(1024, map.image.width);
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -75,50 +76,41 @@ function cleanSkinTexture(map) {
   context.drawImage(map.image, 0, 0, size, size);
   const image = context.getImageData(0, 0, size, size);
   const data = image.data;
+  const hex = /^#[0-9a-f]{6}$/i.test(skinHex) ? skinHex : '#f2c7a0';
+  const tr = parseInt(hex.slice(1, 3), 16);
+  const tg = parseInt(hex.slice(3, 5), 16);
+  const tb = parseInt(hex.slice(5, 7), 16);
 
-  const low = document.createElement('canvas');
-  low.width = lowSize;
-  low.height = lowSize;
-  const lowContext = low.getContext('2d', { willReadFrequently: true });
-  lowContext.imageSmoothingEnabled = true;
-  lowContext.drawImage(canvas, 0, 0, lowSize, lowSize);
-  const lowData = lowContext.getImageData(0, 0, lowSize, lowSize).data;
-  const luma = (i) => (0.2126 * lowData[i] + 0.7152 * lowData[i + 1] + 0.0722 * lowData[i + 2]) / 255;
-
-  // 0.86 deja la piel cerca del color elegido sin llegar a quemarla.
-  const target = 0.86;
-  for (let y = 0; y < size; y++) {
-    const gy = Math.min(lowSize - 1, Math.max(0, ((y + 0.5) / size) * lowSize - 0.5));
-    const y0 = Math.floor(gy);
-    const y1 = Math.min(lowSize - 1, y0 + 1);
-    const ty = gy - y0;
-    for (let x = 0; x < size; x++) {
-      const gx = Math.min(lowSize - 1, Math.max(0, ((x + 0.5) / size) * lowSize - 0.5));
-      const x0 = Math.floor(gx);
-      const x1 = Math.min(lowSize - 1, x0 + 1);
-      const tx = gx - x0;
-      const a = luma((y0 * lowSize + x0) * 4);
-      const b = luma((y0 * lowSize + x1) * 4);
-      const c = luma((y1 * lowSize + x0) * 4);
-      const d = luma((y1 * lowSize + x1) * 4);
-      const soft = (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
-      const gain = Math.min(3, Math.max(0.6, target / Math.max(0.04, soft)));
-      const i = (y * size + x) * 4;
-      data[i] = Math.min(255, data[i] * gain);
-      data[i + 1] = Math.min(255, data[i + 1] * gain);
-      data[i + 2] = Math.min(255, data[i + 2] * gain);
-    }
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const max = Math.max(r, g, b);
+    if (max === 0) continue;
+    const min = Math.min(r, g, b);
+    const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    const saturation = (max - min) / max;
+    // Piel: tono cálido, luminancia media y saturación moderada. Los ojos
+    // (blancos o oscuros), el pelo y los labios saturados quedan intactos.
+    const warm = r > b + 6 && r >= g - 4;
+    if (luma <= 0.22 || saturation <= 0.06 || saturation >= 0.58 || !warm) continue;
+    const shade = Math.min(1.18, Math.max(0.32, luma / 0.72));
+    data[i] = Math.min(255, tr * shade);
+    data[i + 1] = Math.min(255, tg * shade);
+    data[i + 2] = Math.min(255, tb * shade);
   }
   context.putImageData(image, 0, 0);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.flipY = map.flipY;
-  texture.colorSpace = map.colorSpace;
+  texture.colorSpace = map.colorSpace || THREE.SRGBColorSpace;
   texture.wrapS = map.wrapS;
   texture.wrapT = map.wrapT;
   texture.anisotropy = map.anisotropy;
+  texture.minFilter = map.minFilter;
+  texture.magFilter = map.magFilter;
   texture.needsUpdate = true;
-  skinMapCache = { source: map, texture };
+  skinTintCache.set(key, texture);
   return texture;
 }
 
@@ -1700,6 +1692,21 @@ export function createWizard(look) {
     const emissive = adminValue('look.emissive', 0);
     for (const base of glbBases) {
       const material = base.material;
+      if (base.name === 'Piel') {
+        // El tono va dentro del mapa: multiplicar además el color blanco de la
+        // textura teñiría también ojos y labios. Se regenera solo si cambia.
+        const next = tintSkinTexture(base.skinSource || material.map, tint.Piel);
+        if (material.map !== next) {
+          material.map = next;
+          material.needsUpdate = true;
+        }
+        material.color.set('#ffffff');
+        material.emissive.set(0x000000);
+        material.emissiveIntensity = 0;
+        material.roughness = styleProps ? styleProps.roughness : 0.96;
+        material.metalness = styleProps ? styleProps.metalness : 0;
+        continue;
+      }
       const color = tint[base.name];
       if (color) material.color.set(color);
       else material.color.copy(base.color);
@@ -1712,9 +1719,7 @@ export function createWizard(look) {
       }
       if (material.emissive) {
         material.emissive.copy(material.color);
-        // La piel conserva un levante mínimo propio aunque el panel ponga el
-        // emisivo general a cero: el cuello nunca queda en sombra cerrada.
-        material.emissiveIntensity = Math.max(base.name === 'Piel' ? 0.06 : 0, emissive);
+        material.emissiveIntensity = emissive;
       }
     }
 
@@ -1834,16 +1839,20 @@ export function createWizard(look) {
             // color elegido manda y las luces y sombras del mechón se conservan.
             material.color.set(look[field]);
           }
+          let skinSource = null;
           if (material.name === 'Piel') {
             skinMaterial = material;
-            // La banda oscura del cuello venía del sombreado pintado en el atlas
-            // (y el mapa de normales añadía grano). Se aplana la textura y se
-            // quita el normal map: la piel queda limpia y el color elegido se
-            // mantiene de la cara al cuello.
+            skinSource = material.map;
+            // El mapa de normales añadía grano a la piel. El color viene del
+            // atlas original; el tono del taller se aplica en el mapa, no
+            // multiplicando toda la textura.
             material.normalMap = null;
-            material.map = cleanSkinTexture(material.map);
-            material.emissive.copy(material.color).multiplyScalar(0.06);
-            material.emissiveIntensity = 1;
+            material.map = tintSkinTexture(skinSource, percentToHex(look.skin));
+            material.color.set('#ffffff');
+            material.emissive.set(0x000000);
+            material.emissiveIntensity = 0;
+            material.roughness = 0.96;
+            material.metalness = 0;
           }
           material.roughness = Math.min(1, material.roughness ?? 0.9);
           object.material = material;
@@ -1856,6 +1865,7 @@ export function createWizard(look) {
             emissiveIntensity: material.emissiveIntensity ?? 0,
             roughness: material.roughness ?? 0.9,
             metalness: material.metalness ?? 0,
+            skinSource,
           });
         }
         if (object.isBone) {
@@ -1877,7 +1887,7 @@ export function createWizard(look) {
       // El puño se cuelga del bastón, no de la mano: así el asta queda dentro
       // de la palma y los dedos la envuelven en todo el rango de la muñeca.
       if (skinMaterial) {
-        fistGroup = createGripFist({ color: skinMaterial.color.getHex() });
+        fistGroup = createGripFist({ color: percentToHex(look.skin) });
         fistMaterial = fistGroup.userData.material;
         fistMaterial.emissive.copy(fistMaterial.color).multiplyScalar(0.06);
         fistMaterial.emissiveIntensity = 1;

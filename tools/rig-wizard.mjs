@@ -1450,13 +1450,15 @@ for (let t = 0; t < triangleCount; t++) {
   console.log(`  puños: ${cuffVerts.size} vértices ceñidos`);
 }
 
-// Atlas neutro para las zonas teñibles (túnica, piel y pelo). El original
-// lleva el color y el sombreado horneados: al multiplicarlo por el color del
-// taller, el castaño del pelo apagaba los rubios y los blancos, y las zonas
-// oscuras de la tela ensuciaban la túnica. Se conserva el detalle (luminancia)
-// y se comprime el rango para que las sombras no se coman el color; el tono lo
-// pone el color elegido. «Detalle» mantiene el atlas original con sus botas y
-// su cinturón.
+// Atlas neutro para la túnica y el pelo. El original lleva el color y el
+// sombreado horneados: al multiplicarlo por el color del taller, el castaño del
+// pelo apagaba los rubios y los blancos, y las zonas oscuras de la tela
+// ensuciaban la túnica. Se conserva el detalle (luminancia) y se comprime el
+// rango para que las sombras no se coman el color; el tono lo pone el color
+// elegido. La piel no usa este atlas: necesita conservar el blanco de los ojos,
+// el iris y las encías, así que mantiene su textura de color y se tiñe en el
+// cliente sin perder esos rasgos. «Detalle» mantiene el atlas original con sus
+// botas y su cinturón.
 let neutralAtlasJpeg = null;
 if (atlas) {
   const pixels = Buffer.from(atlas.data);
@@ -1471,6 +1473,16 @@ if (atlas) {
   neutralAtlasJpeg = await sharp(pixels, { raw: { width, height, channels } })
     .jpeg({ quality: 92, chromaSubsampling: '4:4:4' })
     .toBuffer();
+}
+
+// Atlas de color original de la piel. El pipeline lo conserva como textura
+// aparte para que los ojos y la boca no se conviertan en manchas de piel; el
+// cliente recolorea solo los píxeles de piel y respeta los rasgos oscuros.
+let colorAtlasJpeg = null;
+if (baseRaw && baseImage) {
+  colorAtlasJpeg = baseImage.mimeType === 'image/jpeg'
+    ? baseRaw
+    : await sharp(baseRaw).jpeg({ quality: 94, chromaSubsampling: '4:4:4' }).toBuffer();
 }
 
 // ------------------------------------------------------------------ escribir
@@ -1529,8 +1541,10 @@ function addAccessor(array, componentType, type, count, target, withBounds = fal
   return outputAccessors.length - 1;
 }
 
-// Una primitiva por región, compartiendo texturas y esqueleto.
-const TINTED_MATERIALS = new Set(['Tunica', 'Piel', 'Pelo']);
+// Una primitiva por región, compartiendo texturas y esqueleto. La piel es la
+// única zona que conserva el atlas de color; la túnica y el pelo usan el atlas
+// neutro para que el tinte del taller no se mezcle con el color original.
+const NEUTRAL_TINTED = new Set(['Tunica', 'Pelo']);
 const baseMaterial = json.materials && json.materials[0]
   ? JSON.parse(JSON.stringify(json.materials[0]))
   : { pbrMetallicRoughness: {} };
@@ -1633,19 +1647,32 @@ const images = (json.images || []).map((image) => {
   return { ...image, bufferView: viewIndex, uri: undefined };
 });
 const textures = (json.textures || []).map((texture) => ({ ...texture }));
+let neutralTextureIndex = null;
 if (neutralAtlasJpeg) {
   const viewIndex = addView(neutralAtlasJpeg, null);
   images.push({ mimeType: 'image/jpeg', bufferView: viewIndex });
-  const textureIndex = textures.length;
+  neutralTextureIndex = textures.length;
   textures.push({ ...(textures[0] || { sampler: 0 }), source: images.length - 1 });
-  for (const material of materials) {
-    if (!TINTED_MATERIALS.has(material.name)) continue;
-    material.pbrMetallicRoughness = material.pbrMetallicRoughness || {};
-    material.pbrMetallicRoughness.baseColorTexture = {
-      ...(material.pbrMetallicRoughness.baseColorTexture || {}),
-      index: textureIndex,
-    };
-  }
+}
+let skinTextureIndex = null;
+if (colorAtlasJpeg) {
+  const viewIndex = addView(colorAtlasJpeg, null);
+  images.push({ mimeType: 'image/jpeg', bufferView: viewIndex });
+  skinTextureIndex = textures.length;
+  textures.push({ ...(textures[0] || { sampler: 0 }), source: images.length - 1 });
+}
+for (const material of materials) {
+  const indexed = material.name === 'Piel'
+    ? skinTextureIndex ?? neutralTextureIndex
+    : NEUTRAL_TINTED.has(material.name)
+      ? neutralTextureIndex
+      : null;
+  if (indexed == null) continue;
+  material.pbrMetallicRoughness = material.pbrMetallicRoughness || {};
+  material.pbrMetallicRoughness.baseColorTexture = {
+    ...(material.pbrMetallicRoughness.baseColorTexture || {}),
+    index: indexed,
+  };
 }
 
 // Animaciones: cada clip se hornea a 60 fps con curvas suaves.
