@@ -68,10 +68,16 @@ const SKIN_FACE_BOXES = [
   { u0: 0.70, u1: 0.82, v0: 0.58, v1: 0.70 },
   { u0: 0.50, u1: 0.66, v0: 0.76, v1: 0.90 },
 ];
+// El iris y la pupila son oscuros como el pelo; esta máscara evita que el
+// tinte del cabello cambie el color de los ojos.
+const SKIN_EYE_MASKS = [
+  { cx: 0.757, cy: 0.632, rx: 0.015, ry: 0.012 },
+  { cx: 0.575, cy: 0.836, rx: 0.015, ry: 0.012 },
+];
 
-function tintSkinTexture(map, skinHex) {
+function tintSkinTexture(map, skinHex, hairHex) {
   if (!map || !map.image || !map.image.width) return map;
-  const key = `${map.uuid}:${skinHex}`;
+  const key = `${map.uuid}:${skinHex}:${hairHex}`;
   const cached = skinTintCache.get(key);
   if (cached) return cached;
 
@@ -88,6 +94,10 @@ function tintSkinTexture(map, skinHex) {
   const tr = parseInt(hex.slice(1, 3), 16);
   const tg = parseInt(hex.slice(3, 5), 16);
   const tb = parseInt(hex.slice(5, 7), 16);
+  const hair = /^#[0-9a-f]{6}$/i.test(hairHex) ? hairHex : '#6b3f28';
+  const hr = parseInt(hair.slice(1, 3), 16);
+  const hg = parseInt(hair.slice(3, 5), 16);
+  const hb = parseInt(hair.slice(5, 7), 16);
 
   for (let i = 0; i < data.length; i += 4) {
     const pixel = i / 4;
@@ -104,9 +114,30 @@ function tintSkinTexture(map, skinHex) {
     const min = Math.min(r, g, b);
     const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
     const saturation = (max - min) / max;
+
+    // El pelo comparte el atlas de Piel desde que la cabeza es una sola malla.
+    // Se distingue por ser oscuro y marrón; los tonos de piel son claros y los
+    // labios tienen más saturación. El iris queda protegido por la máscara.
+    const inEye = SKIN_EYE_MASKS.some((eye) => {
+      const nx = (u - eye.cx) / eye.rx;
+      const ny = (v - eye.cy) / eye.ry;
+      return nx * nx + ny * ny <= 1;
+    });
+    // El atlas facial contiene ojos y boca. El pelo del flequillo y la nuca
+    // queda fuera de esas cajas; así el tinte no alcanza los labios.
+    const inFace = SKIN_FACE_BOXES.some((box) => u >= box.u0 && u <= box.u1 && v >= box.v0 && v <= box.v1);
+    const hairLike = !inFace && !inEye && luma < 0.42 && saturation > 0.45 && saturation < 0.9
+      && r > g && g > b * 1.25;
+    if (hairLike) {
+      const shade = Math.min(1.22, Math.max(0.34, 0.55 + (luma - 0.18) * 2.1));
+      data[i] = Math.min(255, hr * shade);
+      data[i + 1] = Math.min(255, hg * shade);
+      data[i + 2] = Math.min(255, hb * shade);
+      continue;
+    }
+
     // En la isla facial se tiñe también la piel clara mate; fuera de ella se
     // mantiene el umbral conservador para no tocar el pelo ni la ropa.
-    const inFace = SKIN_FACE_BOXES.some((box) => u >= box.u0 && u <= box.u1 && v >= box.v0 && v <= box.v1);
     const warm = r > b + (inFace ? 2 : 6) && r >= g - (inFace ? 8 : 4);
     if (inFace) {
       const eyeWhite = luma > 0.65 && saturation < 0.12;
@@ -1715,7 +1746,7 @@ export function createWizard(look) {
       if (base.name === 'Piel') {
         // El tono va dentro del mapa: multiplicar además el color blanco de la
         // textura teñiría también ojos y labios. Se regenera solo si cambia.
-        const next = tintSkinTexture(base.skinSource || material.map, tint.Piel);
+        const next = tintSkinTexture(base.skinSource || material.map, tint.Piel, tint.Pelo);
         if (material.map !== next) {
           material.map = next;
           material.needsUpdate = true;
@@ -1867,7 +1898,7 @@ export function createWizard(look) {
             // atlas original; el tono del taller se aplica en el mapa, no
             // multiplicando toda la textura.
             material.normalMap = null;
-            material.map = tintSkinTexture(skinSource, percentToHex(look.skin));
+            material.map = tintSkinTexture(skinSource, percentToHex(look.skin), percentToHex(look.hair));
             material.color.set('#ffffff');
             material.emissive.set(0x000000);
             material.emissiveIntensity = 0;
