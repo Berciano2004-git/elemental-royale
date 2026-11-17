@@ -196,6 +196,7 @@ export function createWizardPreview() {
   };
 
   look = {
+    style: 'mago',
     robe: '#5b4bd6',
     hat: 'pointy',
     hatColor: '#2b2440',

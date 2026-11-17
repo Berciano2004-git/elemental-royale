@@ -18,6 +18,7 @@ import {
   RARITY_KEYS,
   SNAPSHOT_RATE,
   STAVES,
+  STYLES,
   STORM_PHASES,
   TICK_RATE,
   comboFor,
@@ -106,6 +107,7 @@ function sanitizeLook(raw) {
   const out = { ...def };
   if (HATS.some((h) => h.id === raw.hat)) out.hat = raw.hat;
   if (STAVES.some((s) => s.id === raw.staff)) out.staff = raw.staff;
+  if (STYLES.some((s) => s.id === raw.style)) out.style = raw.style;
   for (const key of ['robe', 'hatColor', 'staffColor', 'magic', 'skin', 'hair']) {
     if (typeof raw[key] === 'string' && COLOR_RE.test(raw[key])) out[key] = raw[key].toLowerCase();
   }

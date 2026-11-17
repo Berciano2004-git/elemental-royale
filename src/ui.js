@@ -12,6 +12,7 @@ import {
   SKIN_COLORS,
   STAFF_COLORS,
   STAVES,
+  STYLES,
   defaultLook,
   elementCss,
   randomLook,
@@ -215,6 +216,27 @@ function buildSwatches(containerId, colors, field) {
 
 // Cada punto lleva directo a esa pieza: además de los botones ‹ ›, se puede
 // pulsar el punto concreto y se alcanza también con el teclado.
+function buildStyles() {
+  const container = $('style-toggle');
+  container.innerHTML = '';
+  for (const style of STYLES) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'style-option';
+    button.dataset.style = style.id;
+    button.textContent = style.name;
+    button.setAttribute('aria-label', `Estilo ${style.name}`);
+    button.addEventListener('click', () => {
+      if (look.style === style.id) return;
+      look.style = style.id;
+      syncCustomizer();
+      commitLook();
+      callbacks.uiClick?.();
+    });
+    container.appendChild(button);
+  }
+}
+
 function buildDots(containerId, items, field) {
   const container = $(containerId);
   container.innerHTML = '';
@@ -237,6 +259,13 @@ function buildDots(containerId, items, field) {
 }
 
 function syncCustomizer() {
+  const style = STYLES.find((s) => s.id === look.style) || STYLES[0];
+  $('style-name').textContent = style.name;
+  for (const button of $('style-toggle').children) {
+    const on = button.dataset.style === style.id;
+    button.classList.toggle('active', on);
+    button.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
   const hatIndex = Math.max(0, HATS.findIndex((h) => h.id === look.hat));
   const staffIndex = Math.max(0, STAVES.findIndex((s) => s.id === look.staff));
   $('hat-name').textContent = HATS[hatIndex].name;
@@ -520,6 +549,7 @@ export const ui = {
     buildSwatches('magic-swatches', MAGIC_COLORS, 'magic');
     buildSwatches('hair-swatches', HAIR_COLORS, 'hair');
     buildSwatches('skin-swatches', SKIN_COLORS, 'skin');
+    buildStyles();
     buildDots('hat-dots', HATS, 'hat');
     buildDots('staff-dots', STAVES, 'staff');
     buildCollection();

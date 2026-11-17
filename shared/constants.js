@@ -111,8 +111,16 @@ export const MAGIC_COLORS = [
 export const SKIN_COLORS = ['#f2c7a0', '#d99b6c', '#b5794f', '#8a5a3b', '#6b3f28'];
 export const HAIR_COLORS = ['#2b2440', '#6b3f28', '#c9a227', '#e8e0c8', '#a33b3b', '#5b4bd6'];
 
+// Estilos de personaje. Solo cambian la silueta y el pelo; no tocan ninguna
+// estadística ni la simulación del servidor.
+export const STYLES = [
+  { id: 'mago', name: 'Mago' },
+  { id: 'hechicera', name: 'Hechicera' },
+];
+
 export function defaultLook() {
   return {
+    style: 'mago',
     robe: '#5b4bd6',
     hat: 'pointy',
     hatColor: '#2b2440',
@@ -127,6 +135,7 @@ export function defaultLook() {
 export function randomLook(rand = Math.random) {
   const pick = (arr) => arr[Math.floor(rand() * arr.length)];
   return {
+    style: pick(STYLES).id,
     robe: pick(ROBE_COLORS),
     hat: pick(HATS).id,
     hatColor: pick(HAT_COLORS),

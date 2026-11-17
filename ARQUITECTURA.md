@@ -619,6 +619,7 @@ El aspecto es un objeto plano que viaja al servidor y se guarda en `localStorage
 
 ```js
 {
+  style: 'mago',        // 'mago' | 'hechicera' (cosmético)
   robe: '#5b4bd6',
   hat: 'pointy',        // id de HATS
   hatColor: '#2b2440',
@@ -631,7 +632,13 @@ El aspecto es un objeto plano que viaja al servidor y se guarda en `localStorage
 ```
 
 `defaultLook()` y `randomLook()` viven en `shared/constants.js`. El servidor sanea el objeto
-(`sanitizeLook`) y lo usa para que todos vean el mismo mago; no afecta a estadísticas.
+(`sanitizeLook`) y lo usa para que todos vean el mismo mago; no afecta a estadísticas. Los
+aspectos antiguos sin `style` se interpretan como `mago`.
+
+El estilo `hechicera` se construye en el cliente sobre una copia de la malla de la túnica,
+estrecha la cintura y añade una falda y una melena procedurales. No crea un segundo esqueleto
+ni duplica los clips: la falda cuelga del hueso `Hips` y la melena del hueso `Head`, de modo que
+acompañan las mismas animaciones.
 
 El modelo se regenera con dos herramientas:
 
