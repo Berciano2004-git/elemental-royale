@@ -635,10 +635,10 @@ El aspecto es un objeto plano que viaja al servidor y se guarda en `localStorage
 (`sanitizeLook`) y lo usa para que todos vean el mismo mago; no afecta a estadísticas. Los
 aspectos antiguos sin `style` se interpretan como `mago`.
 
-El estilo `hechicera` se construye en el cliente sobre una copia de la malla de la túnica,
-estrecha la cintura y añade una falda y una melena procedurales. No crea un segundo esqueleto
-ni duplica los clips: la falda cuelga del hueso `Hips` y la melena del hueso `Head`, de modo que
-acompañan las mismas animaciones.
+El estilo `hechicera` se construye en el cliente sobre una copia de la malla: estrecha la
+cintura, alarga la túnica y añade una melena procedural. No crea un segundo esqueleto ni
+duplica los clips: la túnica conserva sus pesos de piel y se deforma con las piernas, y la
+melena cuelga del hueso `Head`, de modo que ambas acompañan las mismas animaciones.
 
 El modelo se regenera con dos herramientas:
 

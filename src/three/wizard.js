@@ -167,7 +167,7 @@ function tintSkinTexture(map, skinHex, hairHex) {
 
 // La hechicera usa la misma malla base que el mago, pero se le da una silueta
 // propia sin separar el esqueleto ni duplicar animaciones: se estrecha la
-// cintura, se ensancha la falda y se añade una melena procedural. La geometría
+// cintura, se alarga la túnica y se añade una melena procedural. La geometría
 // se clona por instancia para que cada mago conserve su propia forma.
 function smooth01(value) {
   const t = Math.min(1, Math.max(0, value));
@@ -190,12 +190,18 @@ function shapeHechicera(geometry) {
     const bust = smooth01((y - 1.31) / 0.06) * (1 - smooth01((y - 1.49) / 0.08));
     const scaleX = 1 - 0.18 * waist * center - 0.12 * shoulders * center + 0.10 * hips * (1 - center * 0.5);
     const scaleZ = 1 - 0.12 * waist * center + 0.05 * hips;
-    const nextX = x * scaleX;
-    let nextZ = z * scaleZ;
+    // La túnica se prolonga hacia abajo con sus propios pesos de piel: la falda
+    // no es una pieza rígida colgada de la cadera, sino parte de la malla, así
+    // que acompaña las piernas al andar, correr, saltar y caer.
+    const lower = smooth01((1.02 - y) / 0.14);
+    const nextY = y - 0.3 * lower;
+    const flare = 1 + 0.1 * lower;
+    const nextX = x * scaleX * flare;
+    let nextZ = z * scaleZ * flare;
     // Un volumen discreto en el pecho ayuda a leer la silueta desde el taller;
     // se limita a la parte delantera para no abombar la espalda.
     if (center > 0 && bust > 0 && z > -0.02) nextZ += 0.032 * bust * center;
-    position.setXYZ(i, nextX, y, nextZ);
+    position.setXYZ(i, nextX, nextY, nextZ);
   }
   position.needsUpdate = true;
   geometry.computeVertexNormals();
@@ -244,27 +250,6 @@ function hairLockGeometry(points, width, thickness) {
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   return geometry;
-}
-
-function createHechiceraSkirt(color) {
-  const group = new THREE.Group();
-  group.name = 'FaldaHechicera';
-  const material = new THREE.MeshStandardMaterial({
-    color: percentToHex(color),
-    roughness: 0.94,
-    metalness: 0,
-    flatShading: true,
-    side: THREE.DoubleSide,
-  });
-  const skirt = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.3, 0.49, 0.63, 14, 1, true),
-    material
-  );
-  // Hips está a la altura de la cadera; la falda empieza en la cintura y cae
-  // hasta media pierna, dejando visibles las botas.
-  skirt.position.y = -0.135;
-  group.add(skirt);
-  return { group, material };
 }
 
 function createHechiceraHair(color) {
@@ -1799,7 +1784,6 @@ export function createWizard(look) {
   let handBone = null;
   let skinMaterial = null;
   let hechiceraHairMaterial = null;
-  let hechiceraSkirtMaterial = null;
   let fistGroup = null;
   let fistMaterial = null;
   let disposed = false;
@@ -1918,7 +1902,6 @@ export function createWizard(look) {
     const staffColor = percentToHex(adminCfg['look.staffColor']);
     const magic = percentToHex(adminCfg['look.magic']);
     if (hechiceraHairMaterial) hechiceraHairMaterial.color.set(percentToHex(adminCfg['look.hair'] || look.hair));
-    if (hechiceraSkirtMaterial) hechiceraSkirtMaterial.color.set(percentToHex(adminCfg['look.robe'] || look.robe));
     const orbColor = currentElement || magic;
     hatMat.color.set(hatColor);
     hatLeatherMat.color.set(hatColor).lerp(LEATHER_TONE, 0.34);
@@ -2077,12 +2060,6 @@ export function createWizard(look) {
         hechiceraHairMaterial = hair.material;
         headBone.add(hair.group);
         materials.push(hair.material);
-      }
-      if (style === 'hechicera' && bones.Hips) {
-        const skirt = createHechiceraSkirt(look.robe);
-        hechiceraSkirtMaterial = skirt.material;
-        bones.Hips.add(skirt.group);
-        materials.push(skirt.material);
       }
       if (headBone) headBone.add(hatPivot);
       if (handBone) {
