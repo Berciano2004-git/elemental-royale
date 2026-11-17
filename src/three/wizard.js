@@ -166,8 +166,8 @@ function tintSkinTexture(map, skinHex, hairHex) {
 
 // La hechicera usa la misma malla base que el mago, pero se le da una silueta
 // propia sin separar el esqueleto ni duplicar animaciones: se estrecha la
-// cintura, se alarga la túnica y se añade una melena procedural. La geometría
-// se clona por instancia para que cada mago conserve su propia forma.
+// cintura y se alarga la túnica. La geometría se clona por instancia para que
+// cada mago conserve su propia forma.
 function smooth01(value) {
   const t = Math.min(1, Math.max(0, value));
   return t * t * (3 - 2 * t);
@@ -222,10 +222,13 @@ function shapeHechiceraFace(geometry) {
     const jaw = smooth01((1.73 - y) / 0.1);
     const chin = smooth01((1.65 - y) / 0.09);
     const cheek = smooth01((y - 1.7) / 0.055) * (1 - smooth01((y - 1.81) / 0.055));
-    const taper = 1 - 0.09 * jaw - 0.08 * chin + 0.018 * cheek;
+    // Un afilado intermedio: suficiente para suavizar la mandíbula sin dejar
+    // un mentón puntiagudo ni una cara triangular.
+    const taper = 1 - 0.085 * jaw - 0.07 * chin + 0.024 * cheek;
     const nextX = x * taper;
-    // El mentón retrocede un poco y la mandíbula pierde el plano más cuadrado.
-    const nextZ = z - (z > 0.02 ? 0.006 * chin : 0);
+    // El mentón retrocede solo un pelo; el labio y la barbilla conservan su
+    // curva para que la boca no parezca pegada sobre una cara plana.
+    const nextZ = z - (z > 0.02 ? 0.003 * chin : 0);
     position.setXYZ(i, nextX, y, nextZ);
   }
   position.needsUpdate = true;
@@ -233,144 +236,36 @@ function shapeHechiceraFace(geometry) {
   geometry.computeBoundingSphere();
 }
 
-// Melena low-poly: cada mechón es una cinta de cuatro caras que se afila hacia
-// la punta. Se genera en el espacio local del hueso Head, así que acompaña al
-// giro y al cabeceo igual que el pelo pintado en la textura.
-function hairLockGeometry(points, width, thickness) {
-  const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.35);
-  const segments = 10;
-  const positions = [];
-  const indices = [];
-  const up = new THREE.Vector3(0, 1, 0);
-  for (let i = 0; i <= segments; i++) {
-    const t = i / segments;
-    const point = curve.getPoint(t);
-    const tangent = curve.getTangent(t).normalize();
-    const side = new THREE.Vector3().crossVectors(tangent, up);
-    if (side.lengthSq() < 1e-5) side.set(1, 0, 0);
-    side.normalize();
-    const normal = new THREE.Vector3().crossVectors(side, tangent).normalize();
-    const taper = 0.05 + 0.95 * Math.pow(1 - t, 0.55);
-    const halfWidth = width * taper;
-    const halfDepth = thickness * taper;
-    for (const [sideSign, depthSign] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-      positions.push(
-        point.x + side.x * halfWidth * sideSign + normal.x * halfDepth * depthSign,
-        point.y + side.y * halfWidth * sideSign + normal.y * halfDepth * depthSign,
-        point.z + side.z * halfWidth * sideSign + normal.z * halfDepth * depthSign
-      );
-    }
-  }
-  for (let i = 0; i < segments; i++) {
-    for (let side = 0; side < 4; side++) {
-      const a = i * 4 + side;
-      const b = i * 4 + (side + 1) % 4;
-      const c = (i + 1) * 4 + (side + 1) % 4;
-      const d = (i + 1) * 4 + side;
-      indices.push(a, b, c, a, c, d);
-    }
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  return geometry;
-}
-
-function createHechiceraHair(color) {
-  const group = new THREE.Group();
-  group.name = 'MelenaHechicera';
-  const material = new THREE.MeshStandardMaterial({
-    color: percentToHex(color),
-    roughness: 0.72,
-    metalness: 0,
-    flatShading: true,
-    side: THREE.DoubleSide,
-  });
-  const locks = [
-    // Nuca y melena larga, de la coronilla a la cintura.
-    [[0, 0.17, -0.12], [0.01, 0.04, -0.2], [0.02, -0.22, -0.23], [0, -0.5, -0.18], [0, -0.72, -0.11]],
-    [[0.09, 0.16, -0.11], [0.16, 0.01, -0.18], [0.2, -0.26, -0.2], [0.18, -0.51, -0.14], [0.14, -0.72, -0.08]],
-    [[-0.09, 0.16, -0.11], [-0.16, 0.01, -0.18], [-0.2, -0.26, -0.2], [-0.18, -0.51, -0.14], [-0.14, -0.72, -0.08]],
-    // Mechones laterales que enmarcan la cara.
-    [[0.15, 0.14, -0.05], [0.21, -0.02, -0.1], [0.23, -0.25, -0.08], [0.2, -0.45, -0.03]],
-    [[-0.15, 0.14, -0.05], [-0.21, -0.02, -0.1], [-0.23, -0.25, -0.08], [-0.2, -0.45, -0.03]],
-    // Flequillo abierto, sin tapar los ojos pintados en el atlas.
-    [[0.04, 0.23, 0.08], [0.11, 0.16, 0.15], [0.14, 0.03, 0.16], [0.13, -0.12, 0.12]],
-    [[-0.04, 0.23, 0.08], [-0.11, 0.16, 0.15], [-0.14, 0.03, 0.16], [-0.13, -0.12, 0.12]],
-  ];
-  for (const [index, points] of locks.entries()) {
-    const width = index < 3 ? 0.07 : index < 5 ? 0.052 : 0.038;
-    const thickness = index < 3 ? 0.035 : 0.025;
-    const mesh = new THREE.Mesh(
-      hairLockGeometry(points.map(([x, y, z]) => new THREE.Vector3(x, y, z)), width, thickness),
-      material
-    );
-    group.add(mesh);
-  }
-  return { group, material };
-}
-
-// Borde suave para el parche de piel que cubre la ceja pintada del mago. Sin
-// esta transición, de cerca se veía como una calcomanía pálida sobre la frente.
-let facePatchAlpha = null;
-function getFacePatchAlpha() {
-  if (facePatchAlpha) return facePatchAlpha;
-  const canvas = document.createElement('canvas');
-  canvas.width = 64;
-  canvas.height = 64;
-  const context = canvas.getContext('2d');
-  const gradient = context.createRadialGradient(32, 32, 2, 32, 32, 31);
-  gradient.addColorStop(0, '#ffffff');
-  gradient.addColorStop(0.58, '#ffffff');
-  gradient.addColorStop(1, '#000000');
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, 64, 64);
-  facePatchAlpha = new THREE.CanvasTexture(canvas);
-  facePatchAlpha.needsUpdate = true;
-  return facePatchAlpha;
-}
-
 // Detalles de la cara que no existen en el atlas del mago: labios, delineado,
-// pestañas, cejas y un rubor tenue. Son piezas finas colgadas de `Head`, así que
+// pestañas y un rubor tenue. Son piezas finas colgadas de `Head`, así que
 // siguen la cabeza en todos los clips sin modificar el esqueleto ni la malla.
-function createHechiceraFaceDetails(skinHex, hairHex) {
+function createHechiceraFaceDetails() {
   const group = new THREE.Group();
   group.name = 'RostroHechicera';
   const materials = [];
-  const skin = percentToHex(skinHex);
-  const hair = percentToHex(hairHex);
 
+  // El mago ya trae cejas pintadas y una boca dibujada. En vez de taparlas
+  // con parches y poner unas segundas cejas encima, se conserva esa base y se
+  // refuerza solo lo que aporta una lectura femenina: labios, delineado y
+  // rubor. Así no hay dos cejas ni óvalos de piel flotando en la frente.
   const lipMat = new THREE.MeshStandardMaterial({
-    color: '#b44d60', roughness: 0.58, metalness: 0, flatShading: true, side: THREE.DoubleSide,
+    color: '#a55261', roughness: 0.64, metalness: 0, flatShading: true, side: THREE.DoubleSide,
   });
-  const lipLineMat = new THREE.MeshBasicMaterial({ color: '#682b38', side: THREE.DoubleSide });
+  const lipLineMat = new THREE.MeshBasicMaterial({ color: '#6d303b', side: THREE.DoubleSide });
   const lipShineMat = new THREE.MeshBasicMaterial({
-    color: '#e695a1', transparent: true, opacity: 0.72, depthWrite: false, side: THREE.DoubleSide,
+    color: '#e7a0aa', transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide,
   });
-  const linerMat = new THREE.MeshBasicMaterial({ color: '#2d1d27' });
+  const linerMat = new THREE.MeshBasicMaterial({ color: '#33222a' });
   const blushMat = new THREE.MeshBasicMaterial({
     color: '#d47a88', transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide,
   });
-  const skinPatchMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(skin).multiplyScalar(0.78),
-    alphaMap: getFacePatchAlpha(),
-    transparent: true,
-    depthWrite: false,
-    roughness: 0.96,
-    metalness: 0,
-    side: THREE.DoubleSide,
-  });
-  const browMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(hair).multiplyScalar(0.58), roughness: 0.86, metalness: 0,
-  });
-  materials.push(lipMat, lipLineMat, lipShineMat, linerMat, blushMat, skinPatchMat, browMat);
+  materials.push(lipMat, lipLineMat, lipShineMat, linerMat, blushMat);
 
   // Labios: una pieza plana con las comisuras ligeramente hacia atrás para que
   // apoye en la curva de la cara. La línea central conserva la expresión de la
   // boca pintada, pero el volumen y el color son nuevos.
-  const lipWidth = 0.058;
-  const lipHeight = 0.021;
+  const lipWidth = 0.054;
+  const lipHeight = 0.017;
   const lipShape = new THREE.Shape();
   lipShape.moveTo(-lipWidth / 2, 0);
   lipShape.quadraticCurveTo(-lipWidth * 0.22, lipHeight * 0.64, 0, lipHeight * 0.34);
@@ -385,7 +280,7 @@ function createHechiceraFaceDetails(skinHex, hairHex) {
   }
   lipGeometry.computeVertexNormals();
   const lips = new THREE.Mesh(lipGeometry, lipMat);
-  lips.position.set(0, 0.045, 0.119);
+  lips.position.set(0, 0.039, 0.119);
   group.add(lips);
 
   const lipLine = new THREE.Mesh(
@@ -413,46 +308,26 @@ function createHechiceraFaceDetails(skinHex, hairHex) {
       new THREE.Vector3(side * 0.056, 0.124, 0.097),
       new THREE.Vector3(side * 0.064, 0.133, 0.095),
     ]);
-    const liner = new THREE.Mesh(new THREE.TubeGeometry(lid, 8, 0.0011, 4, false), linerMat);
+    const liner = new THREE.Mesh(new THREE.TubeGeometry(lid, 8, 0.0009, 4, false), linerMat);
     group.add(liner);
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 3; i++) {
       const lash = new THREE.CatmullRomCurve3([
-        new THREE.Vector3(side * (0.051 + i * 0.004), 0.125 + i * 0.001, 0.097),
-        new THREE.Vector3(side * (0.065 + i * 0.006), 0.135 + i * 0.003, 0.096),
+        new THREE.Vector3(side * (0.052 + i * 0.004), 0.127 + i * 0.001, 0.097),
+        new THREE.Vector3(side * (0.069 + i * 0.007), 0.137 + i * 0.004, 0.096),
       ]);
-      group.add(new THREE.Mesh(new THREE.TubeGeometry(lash, 4, 0.0008, 3, false), linerMat));
+      group.add(new THREE.Mesh(new THREE.TubeGeometry(lash, 4, 0.00055, 3, false), linerMat));
     }
 
     // Rubor: dos discos muy transparentes sobre las mejillas. No tapan la
     // textura, solo le dan un tono cálido a la cara al girar.
-    const blush = new THREE.Mesh(new THREE.CircleGeometry(1, 16), blushMat);
-    blush.position.set(side * 0.072, 0.082, 0.096);
-    blush.scale.set(0.028, 0.015, 1);
+        const blush = new THREE.Mesh(new THREE.CircleGeometry(1, 16), blushMat);
+    blush.position.set(side * 0.07, 0.078, 0.097);
+    blush.scale.set(0.026, 0.013, 1);
     group.add(blush);
 
-    // La ceja pintada del mago es gruesa y recta. Un parche de piel muy fino
-    // la cubre y una ceja nueva, más arqueada, define el gesto. El parche se
-    // curva hacia atrás en las puntas para apoyar en la frente.
-    const patch = new THREE.CircleGeometry(1, 20);
-    const patchPosition = patch.getAttribute('position');
-    for (let i = 0; i < patchPosition.count; i++) {
-      patchPosition.setZ(i, -0.008 * patchPosition.getX(i) ** 2);
-    }
-    patch.computeVertexNormals();
-    const browPatch = new THREE.Mesh(patch, skinPatchMat);
-    browPatch.position.set(side * 0.044, 0.145, 0.108);
-    browPatch.scale.set(0.034, 0.0092, 1);
-    group.add(browPatch);
-    const brow = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(side * 0.014, 0.143, 0.114),
-      new THREE.Vector3(side * 0.03, 0.155, 0.116),
-      new THREE.Vector3(side * 0.049, 0.153, 0.115),
-      new THREE.Vector3(side * 0.064, 0.144, 0.112),
-    ]);
-    group.add(new THREE.Mesh(new THREE.TubeGeometry(brow, 7, 0.0019, 4, false), browMat));
   }
 
-  return { group, materials, skinPatchMat, browMat };
+  return { group, materials };
 }
 
 let glowTexture = null;
@@ -1952,9 +1827,7 @@ export function createWizard(look) {
   let headBone = null;
   let handBone = null;
   let skinMaterial = null;
-  let hechiceraHairMaterial = null;
-  let hechiceraSkinPatchMaterial = null;
-  let hechiceraBrowMaterial = null;
+
   let fistGroup = null;
   let fistMaterial = null;
   let disposed = false;
@@ -2072,9 +1945,7 @@ export function createWizard(look) {
     const hatColor = percentToHex(adminCfg['look.hatColor']);
     const staffColor = percentToHex(adminCfg['look.staffColor']);
     const magic = percentToHex(adminCfg['look.magic']);
-    if (hechiceraHairMaterial) hechiceraHairMaterial.color.set(percentToHex(adminCfg['look.hair'] || look.hair));
-    if (hechiceraSkinPatchMaterial) hechiceraSkinPatchMaterial.color.set(tint.Piel).multiplyScalar(0.78);
-    if (hechiceraBrowMaterial) hechiceraBrowMaterial.color.set(percentToHex(adminCfg['look.hair'] || look.hair)).multiplyScalar(0.58);
+
     const orbColor = currentElement || magic;
     hatMat.color.set(hatColor);
     hatLeatherMat.color.set(hatColor).lerp(LEATHER_TONE, 0.34);
@@ -2230,13 +2101,10 @@ export function createWizard(look) {
       rig.add(model);
       loadedOnce = true;
       if (style === 'hechicera' && headBone) {
-        const hair = createHechiceraHair(look.hair);
-        hechiceraHairMaterial = hair.material;
-        headBone.add(hair.group);
-        materials.push(hair.material);
-        const face = createHechiceraFaceDetails(look.skin, look.hair);
-        hechiceraSkinPatchMaterial = face.skinPatchMat;
-        hechiceraBrowMaterial = face.browMat;
+        // El pelo corto del modelo se conserva: las melenas procedurales que
+        // se probaron tapaban la cara o se leían como un casco. El rasgo
+        // propio queda en la mandíbula y en el maquillaje.
+        const face = createHechiceraFaceDetails();
         headBone.add(face.group);
         materials.push(...face.materials);
       }
