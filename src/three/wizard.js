@@ -74,9 +74,9 @@ const SKIN_EYE_MASKS = [
   { cx: 0.757, cy: 0.632, rx: 0.015, ry: 0.012 },
   { cx: 0.575, cy: 0.836, rx: 0.015, ry: 0.012 },
 ];
-function tintSkinTexture(map, skinHex, hairHex) {
+function tintSkinTexture(map, skinHex, hairHex, softBrows = false) {
   if (!map || !map.image || !map.image.width) return map;
-  const key = `${map.uuid}:${skinHex}:${hairHex}`;
+  const key = `${map.uuid}:${skinHex}:${hairHex}:${softBrows ? 1 : 0}`;
   const cached = skinTintCache.get(key);
   if (cached) return cached;
 
@@ -137,6 +137,17 @@ function tintSkinTexture(map, skinHex, hairHex) {
 
     // En la isla facial se tiñe también la piel clara mate; fuera de ella se
     // mantiene el umbral conservador para no tocar el pelo ni la ropa.
+    // En la hechicera las cejas pintadas del mago se aclaran hacia un marrón
+    // ceniza: son el rasgo que más pesaba en la cara. El iris queda protegido
+    // por la máscara de los ojos.
+    if (softBrows && inFace && !inEye && luma < 0.34 && saturation > 0.15) {
+      const mix = 0.5;
+      data[i] = Math.round(r + (150 - r) * mix);
+      data[i + 1] = Math.round(g + (112 - g) * mix);
+      data[i + 2] = Math.round(b + (96 - b) * mix);
+      continue;
+    }
+
     const warm = r > b + (inFace ? 2 : 6) && r >= g - (inFace ? 8 : 4);
     if (inFace) {
       const eyeWhite = luma > 0.65 && saturation < 0.12;
@@ -224,7 +235,7 @@ function shapeHechiceraFace(geometry) {
     const cheek = smooth01((y - 1.7) / 0.055) * (1 - smooth01((y - 1.81) / 0.055));
     // Un afilado intermedio: suficiente para suavizar la mandíbula sin dejar
     // un mentón puntiagudo ni una cara triangular.
-    const taper = 1 - 0.085 * jaw - 0.07 * chin + 0.024 * cheek;
+    const taper = 1 - 0.1 * jaw - 0.06 * chin + 0.026 * cheek;
     const nextX = x * taper;
     // El mentón retrocede solo un pelo; el labio y la barbilla conservan su
     // curva para que la boca no parezca pegada sobre una cara plana.
@@ -236,9 +247,118 @@ function shapeHechiceraFace(geometry) {
   geometry.computeBoundingSphere();
 }
 
-// Detalles de la cara que no existen en el atlas del mago: labios, delineado,
-// pestañas y un rubor tenue. Son piezas finas colgadas de `Head`, así que
-// siguen la cabeza en todos los clips sin modificar el esqueleto ni la malla.
+// La cabeza del modelo trae un corte corto y puntiagudo modelado en la propia
+// malla, así que no se puede quitar sin deformar el cráneo. La hechicera lleva
+// encima una melena propia hecha de una sola cáscara continua: sigue el cráneo,
+// tapa ese corte, cae hasta los hombros y deja libre la cara. Al ser una pieza
+// cerrada y facetada se lee como volumen de pelo, no como mechones ni cables.
+function createHechiceraHair(color) {
+  const SEG = 18;
+  // Cada anillo: altura, media anchura, z de la nuca y z de la frente. Por
+  // debajo del flequillo la frente se retrae hacia dentro del cráneo para abrir
+  // la cara; el borde visible de la melena queda en las sienes y las mejillas,
+  // que es por donde cae el pelo.
+  const rings = [
+    [0.300, 0.040, -0.036, 0.044],
+    [0.288, 0.082, -0.098, 0.082],
+    [0.270, 0.106, -0.124, 0.100],
+    [0.246, 0.126, -0.148, 0.116],
+    [0.218, 0.137, -0.166, 0.120],
+    [0.190, 0.146, -0.174, 0.122],
+    [0.158, 0.149, -0.178, 0.124],
+    [0.136, 0.151, -0.180, 0.124],
+    [0.112, 0.144, -0.178, 0.014],
+    [0.090, 0.145, -0.180, 0.000],
+    [0.060, 0.144, -0.180, -0.012],
+    [0.020, 0.141, -0.178, -0.024],
+    [-0.020, 0.136, -0.174, -0.036],
+    [-0.060, 0.129, -0.168, -0.048],
+    [-0.100, 0.120, -0.160, -0.058],
+    [-0.140, 0.108, -0.150, -0.068],
+    [-0.180, 0.096, -0.136, -0.076],
+    [-0.215, 0.080, -0.116, -0.082],
+    [-0.245, 0.056, -0.090, -0.086],
+  ];
+  const hash = (a, b) => {
+    const value = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453;
+    return value - Math.floor(value);
+  };
+  const positions = [];
+  const colors = [];
+  const indices = [];
+  for (let i = 0; i < rings.length; i++) {
+    const [y, halfWidth, back, front] = rings[i];
+    for (let j = 0; j < SEG; j++) {
+      const angle = (j / SEG) * Math.PI * 2;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const noise = hash(i, j) - 0.5;
+      // Un grano pequeño en radios y alturas rompe la elipse perfecta y da las
+      // facetas del pelo; el color varía por vértice para que no parezca plástico.
+      const grow = 1 + Math.abs(noise) * 0.035;
+      let z = cos >= 0 ? front * cos : -back * cos;
+      let nextY = y + noise * 0.006;
+      // El bajo no es un corte recto: en los lados y delante la melena sube y
+      // en la nuca cae más, que es lo que separa una melena de un casco.
+      const depth = Math.min(1, Math.max(0, (0.1 - y) / 0.39));
+      nextY += depth * depth * Math.pow((cos + 1) / 2, 1.3) * 0.15;
+      if (i === 7) {
+        // El flequillo no corta la frente en línea recta: cae más de un lado,
+        // como una melena peinada de lado.
+        nextY -= 0.013 * sin + 0.006 * Math.abs(sin);
+        z -= Math.abs(sin) * 0.004;
+      }
+      positions.push(halfWidth * sin * grow, nextY, z * grow);
+      const shade = 0.78 + hash(j, i) * 0.22;
+      colors.push(shade, shade, shade);
+    }
+  }
+  for (let i = 0; i < rings.length - 1; i++) {
+    for (let j = 0; j < SEG; j++) {
+      const a0 = i * SEG + j;
+      const a1 = i * SEG + ((j + 1) % SEG);
+      const b0 = (i + 1) * SEG + j;
+      const b1 = (i + 1) * SEG + ((j + 1) % SEG);
+      indices.push(a0, b0, b1, a0, b1, a1);
+    }
+  }
+  // El copete y el bajo se cierran con un vértice: sin agujeros por los que se
+  // vea el cráneo al inclinar la cabeza.
+  const top = positions.length / 3;
+  positions.push(0, 0.304, 0);
+  colors.push(0.96, 0.96, 0.96);
+  for (let j = 0; j < SEG; j++) indices.push(top, j, (j + 1) % SEG);
+  const bottom = positions.length / 3;
+  positions.push(0, -0.24, -0.088);
+  colors.push(0.9, 0.9, 0.9);
+  const last = (rings.length - 1) * SEG;
+  for (let j = 0; j < SEG; j++) indices.push(bottom, last + j, last + ((j + 1) % SEG));
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  const material = new THREE.MeshStandardMaterial({
+    // El pelo pintado del modelo ya viene sombreado; el tono crudo del taller
+    // se oscurece un poco para que la melena no quede más clara que él.
+    color: new THREE.Color(color || '#6b3f28').multiplyScalar(0.72),
+    vertexColors: true,
+    roughness: 0.66,
+    metalness: 0,
+    flatShading: true,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = 'MelenaHechicera';
+  const group = new THREE.Group();
+  group.name = 'PeloHechicera';
+  group.add(mesh);
+  return { group, material };
+}
+
+// Detalles de la cara que no existen en el atlas del mago: labios y un rubor
+// tenue. Son piezas finas colgadas de `Head`, así que siguen la cabeza en todos
+// los clips sin modificar el esqueleto ni la malla.
 function createHechiceraFaceDetails() {
   const group = new THREE.Group();
   group.name = 'RostroHechicera';
@@ -249,23 +369,22 @@ function createHechiceraFaceDetails() {
   // refuerza solo lo que aporta una lectura femenina: labios, delineado y
   // rubor. Así no hay dos cejas ni óvalos de piel flotando en la frente.
   const lipMat = new THREE.MeshStandardMaterial({
-    color: '#a55261', roughness: 0.64, metalness: 0, flatShading: true, side: THREE.DoubleSide,
+    color: '#ad4f60', roughness: 0.52, metalness: 0, flatShading: true, side: THREE.DoubleSide,
   });
-  const lipLineMat = new THREE.MeshBasicMaterial({ color: '#6d303b', side: THREE.DoubleSide });
+  const lipLineMat = new THREE.MeshBasicMaterial({ color: '#6a2b36', side: THREE.DoubleSide });
   const lipShineMat = new THREE.MeshBasicMaterial({
-    color: '#e7a0aa', transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide,
+    color: '#f0b3bb', transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide,
   });
-  const linerMat = new THREE.MeshBasicMaterial({ color: '#33222a' });
   const blushMat = new THREE.MeshBasicMaterial({
-    color: '#d47a88', transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide,
+    color: '#dc8492', transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide,
   });
-  materials.push(lipMat, lipLineMat, lipShineMat, linerMat, blushMat);
+  materials.push(lipMat, lipLineMat, lipShineMat, blushMat);
 
   // Labios: una pieza plana con las comisuras ligeramente hacia atrás para que
   // apoye en la curva de la cara. La línea central conserva la expresión de la
   // boca pintada, pero el volumen y el color son nuevos.
-  const lipWidth = 0.054;
-  const lipHeight = 0.017;
+  const lipWidth = 0.058;
+  const lipHeight = 0.019;
   const lipShape = new THREE.Shape();
   lipShape.moveTo(-lipWidth / 2, 0);
   lipShape.quadraticCurveTo(-lipWidth * 0.22, lipHeight * 0.64, 0, lipHeight * 0.34);
@@ -280,7 +399,7 @@ function createHechiceraFaceDetails() {
   }
   lipGeometry.computeVertexNormals();
   const lips = new THREE.Mesh(lipGeometry, lipMat);
-  lips.position.set(0, 0.039, 0.119);
+  lips.position.set(0, 0.041, 0.112);
   group.add(lips);
 
   const lipLine = new THREE.Mesh(
@@ -298,33 +417,16 @@ function createHechiceraFaceDetails() {
   lipShine.scale.set(lipWidth * 0.18, lipHeight * 0.14, 1);
   group.add(lipShine);
 
-  // Delineado y pestañas exteriores. El rabillo sube hacia la sien, que es el
-  // gesto que más cambia la lectura de los ojos pintados del mago.
+  // Rubor: dos discos casi transparentes sobre las mejillas. No tapan la
+  // textura, solo le dan un tono cálido a la cara al girar. La línea de los ojos
+  // se deja como viene pintada: los tubos que se probaron antes quedaban a
+  // escala de un píxel y no se veían.
   for (const side of [-1, 1]) {
-    const lid = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(side * 0.017, 0.120, 0.097),
-      new THREE.Vector3(side * 0.029, 0.129, 0.100),
-      new THREE.Vector3(side * 0.045, 0.130, 0.099),
-      new THREE.Vector3(side * 0.056, 0.124, 0.097),
-      new THREE.Vector3(side * 0.064, 0.133, 0.095),
-    ]);
-    const liner = new THREE.Mesh(new THREE.TubeGeometry(lid, 8, 0.0009, 4, false), linerMat);
-    group.add(liner);
-    for (let i = 0; i < 3; i++) {
-      const lash = new THREE.CatmullRomCurve3([
-        new THREE.Vector3(side * (0.052 + i * 0.004), 0.127 + i * 0.001, 0.097),
-        new THREE.Vector3(side * (0.069 + i * 0.007), 0.137 + i * 0.004, 0.096),
-      ]);
-      group.add(new THREE.Mesh(new THREE.TubeGeometry(lash, 4, 0.00055, 3, false), linerMat));
-    }
-
-    // Rubor: dos discos muy transparentes sobre las mejillas. No tapan la
-    // textura, solo le dan un tono cálido a la cara al girar.
-        const blush = new THREE.Mesh(new THREE.CircleGeometry(1, 16), blushMat);
-    blush.position.set(side * 0.07, 0.078, 0.097);
-    blush.scale.set(0.026, 0.013, 1);
+    const blush = new THREE.Mesh(new THREE.CircleGeometry(1, 16), blushMat);
+    blush.position.set(side * 0.068, 0.072, 0.092);
+    blush.rotation.y = side * 0.5;
+    blush.scale.set(0.026, 0.014, 1);
     group.add(blush);
-
   }
 
   return { group, materials };
@@ -2071,7 +2173,7 @@ export function createWizard(look) {
             // atlas original; el tono del taller se aplica en el mapa, no
             // multiplicando toda la textura.
             material.normalMap = null;
-            material.map = tintSkinTexture(skinSource, percentToHex(look.skin), percentToHex(look.hair));
+            material.map = tintSkinTexture(skinSource, percentToHex(look.skin), percentToHex(look.hair), style === 'hechicera');
             material.color.set('#ffffff');
             material.emissive.set(0x000000);
             material.emissiveIntensity = 0;
@@ -2101,9 +2203,11 @@ export function createWizard(look) {
       rig.add(model);
       loadedOnce = true;
       if (style === 'hechicera' && headBone) {
-        // El pelo corto del modelo se conserva: las melenas procedurales que
-        // se probaron tapaban la cara o se leían como un casco. El rasgo
-        // propio queda en la mandíbula y en el maquillaje.
+        // La melena se apoya encima del corte del modelo; sin ella la cabeza
+        // se sigue leyendo como la del mago.
+        const hair = createHechiceraHair(look.hair || '#6b3f28');
+        headBone.add(hair.group);
+        materials.push(hair.material);
         const face = createHechiceraFaceDetails();
         headBone.add(face.group);
         materials.push(...face.materials);

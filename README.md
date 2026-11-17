@@ -168,8 +168,9 @@ Cada partida genera una isla distinta a partir de una semilla:
 En el **Taller arcano** puedes cambiar en tiempo real:
 
 - Dos estilos de personaje: **Mago** y **Hechicera**. La Hechicera añade una silueta
-  propia y una cara con mandíbula afinada, labios, delineado y rubor, conservando el pelo
-  corto del modelo y reutilizando el mismo esqueleto y las mismas animaciones; es puramente
+  propia, una melena larga que cae hasta los hombros y una cara con mandíbula afinada,
+  cejas suavizadas, labios y rubor, reutilizando el mismo esqueleto y las mismas
+  animaciones; es puramente
   cosmética y no cambia estadísticas. Los aspectos guardados sin estilo se cargan como Mago.
 - Doce sombreros: archimago, caminante, casco de cuero, capucha de cuero con vuelta de pelo,
   capucha de paño, diadema rúnica, corona, casco vikingo, aro de laurel, sombrero de copa,

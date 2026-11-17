@@ -636,10 +636,12 @@ El aspecto es un objeto plano que viaja al servidor y se guarda en `localStorage
 aspectos antiguos sin `style` se interpretan como `mago`.
 
 El estilo `hechicera` se construye en el cliente sobre una copia de la malla: estrecha la
-cintura, alarga la túnica, afina la mandíbula y añade rasgos faciales procedurales
-(delineado, pestañas, labios y rubor). Conserva el pelo corto del modelo y no crea un segundo
-esqueleto ni duplica los clips: la túnica conserva sus pesos de piel y se deforma con las
-piernas, y los rasgos cuelgan del hueso `Head`, de modo que acompañan las mismas animaciones.
+cintura, alarga la túnica, afina la mandíbula, aclara las cejas pintadas y añade labios y
+rubor procedurales. Encima del corte corto del modelo (que está modelado en la propia malla
+y no se puede retirar) se monta una melena de una sola pieza facetada que sigue el cráneo,
+tapa ese corte y cae hasta los hombros dejando libre la cara. No crea un segundo esqueleto ni
+duplica los clips: la túnica conserva sus pesos de piel y se deforma con las piernas, y el
+pelo y los rasgos cuelgan del hueso `Head`, de modo que acompañan las mismas animaciones.
 El tono de piel y el color de pelo del taller siguen tiñendo la malla base.
 
 El modelo se regenera con dos herramientas:
