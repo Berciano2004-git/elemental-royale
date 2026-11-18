@@ -62,6 +62,8 @@ npm start          # producción: sirve dist/ y el WebSocket
 | `npm run test:match` | Prueba de integración de una partida (necesita un servidor en 8081). |
 | `npm run test:end` | Observa una partida completa hasta el ganador y el reinicio de sala. |
 | `npm run test:bots` | Comprueba sin servidor que los bots huyen de las zonas enemigas. |
+| `npm run test:limits` | Intenta pasarse del cupo de conexiones, del ritmo de mensajes y del tope de salas. |
+| `npm run verify:public` | Verifica una URL ya publicada: salud, HTML, bundle, `wss`, salas y reconexión. |
 | `npm run rig`, `rig:optimize`, `rig:audit` | Pipeline del modelo del mago y su diagnóstico. |
 
 Variables de entorno:
@@ -74,6 +76,11 @@ Variables de entorno:
 | `ARCHIL_API_KEY` | — | Activa el historial persistente de partidas. |
 | `ARCHIL_REGION` | `aws-us-east-1` | Región del disco Archil. |
 | `ARCHIL_DISK` | `elemental-royale` | Nombre del disco; se crea la primera vez. |
+| `MAX_CONNECTIONS_PER_IP` | `10` | Conexiones abiertas a la vez desde una dirección. |
+| `MAX_MESSAGES_PER_SECOND`, `MAX_MESSAGE_BURST` | `40`, `80` | Cubo de fichas por conexión. |
+| `MAX_MESSAGE_STRIKES` | `200` | Descartes que cierran una conexión abusiva. |
+| `MAX_ROOMS` | `32` | Salas simultáneas en el proceso. |
+| `TRUST_PROXY` | activo en producción | Usa `X-Forwarded-For` para la IP real; `0` sin proxy. |
 
 `server/index.js` carga `.env` y `.env.local` con `process.loadEnvFile` si existen. Las claves
 nunca llegan al navegador.
@@ -85,6 +92,13 @@ comprobando que el archivo resuelto siga dentro de `dist/`.
 
 El WebSocket se acepta solo en `/ws`; cualquier otro *upgrade* se destruye. El tamaño máximo de
 mensaje es 16 KB, suficiente para el protocolo y pequeño frente a abusos.
+
+El servidor pone además tres topes antes de tocar la partida: 10 conexiones por dirección (se
+cuentan y se liberan al cerrar), un cubo de fichas por conexión de 40 mensajes por segundo con
+ráfaga de 80 —el cliente manda entrada a 20 Hz, así que sobra la mitad— y 32 salas. Pasarse del
+primero o del tercero cierra la conexión con un `error` que explica el motivo; pasarse del
+segundo descarta los mensajes y, tras 200 descartes, cierra con aviso. `scripts/test-limits.mjs`
+lo comprueba arrancando el servidor con topes diminutos e intentando pasarse de los tres.
 
 ---
 

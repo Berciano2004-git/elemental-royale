@@ -89,6 +89,12 @@ para el WebSocket.
 | `RECONNECT_GRACE` | `40` (por defecto) | Segundos que un mago desconectado sigue en pie. |
 | `ARCHIL_API_KEY` | opcional | Activa el historial persistente de partidas. Sin ella el juego funciona igual. |
 | `ARCHIL_REGION`, `ARCHIL_DISK` | opcional | Solo con la clave anterior. |
+| `MAX_CONNECTIONS_PER_IP` | `10` | Conexiones simultáneas desde una misma dirección. |
+| `MAX_MESSAGES_PER_SECOND` | `40` | Ritmo por conexión; el cliente manda entrada a 20 Hz. |
+| `MAX_MESSAGE_BURST` | `80` | Ráfaga tolerada antes de descartar mensajes. |
+| `MAX_MESSAGE_STRIKES` | `200` | Descartes seguidos que cierran la conexión. |
+| `MAX_ROOMS` | `32` | Salas simultáneas en el proceso. |
+| `TRUST_PROXY` | activo en producción | Ponlo a `0` si expones el servidor sin proxy delante. |
 
 Los secretos van en el panel del host (`fly secrets set ARCHIL_API_KEY=...`), nunca en el
 repositorio ni en la imagen: `.dockerignore` excluye `.env` y `.env.local`.
@@ -100,15 +106,50 @@ repositorio ni en la imagen: `.dockerignore` excluye `.env` y `.env.local`.
    *mixed content*: el WebSocket debe ser `wss://`.
 3. Dos pestañas en `https://TU-APP.fly.dev/?sala=PRUEBA`: se ven en el lobby, una pulsa
    **«Jugar ya»** y ambas entran en la misma isla.
-4. Prueba de protocolo contra el host, con el mismo script que en local:
+4. Verificación completa de la URL publicada, con un solo comando:
+
+   ```bash
+   npm run verify:public -- https://TU-APP.fly.dev
+   ```
+
+   Comprueba `/healthz`, que el HTML y su bundle lleguen bien, que el WebSocket sea
+   `wss`, que dos magos entren en la misma sala, que la partida arranque desde el segundo,
+   que un corte deje al mago en pie y que vuelva el mismo. Termina con «Comparte:
+   …/?sala=XXXX» o con un `✗` que dice qué falló.
+
+5. Prueba de protocolo detallada, la misma que en local:
 
    ```bash
    URL=wss://TU-APP.fly.dev/ws npm run test:rooms
    ```
 
-   Comprueba salas separadas, arranque desde el segundo mago, corte de red y vuelta del
-   mismo mago (el plazo real es de 40 s; para una pasada corta, despliega con
+   (El plazo real de reconexión es de 40 s; para una pasada corta, despliega con
    `RECONNECT_GRACE=3` y vuelve a subirlo).
+
+## Blindaje
+
+Cada conexión lleva un cubo de fichas y cada dirección un cupo, así que un script no puede
+hundir la partida de los demás:
+
+| Tope | Valor por defecto | Qué ocurre al pasarse |
+| --- | --- | --- |
+| Conexiones por IP | 10 | Se avisa del motivo y se cierra el socket; la plaza se libera al cerrar. |
+| Mensajes por conexión | 40/s, ráfaga de 80 | Los mensajes sobrantes se descartan; a los 200 descartes se cierra con aviso. |
+| Salas | 32 | La sala nueva no se abre y el cliente recibe el motivo. |
+
+Una partida normal gasta la mitad del cupo de mensajes (20 Hz de entrada, más casteos). Los
+topes se prueban con un servidor de límites pequeños y una prueba que intenta pasarse:
+
+```bash
+PORT=8083 MAX_CONNECTIONS_PER_IP=3 MAX_ROOMS=2 MAX_MESSAGES_PER_SECOND=10 \
+  MAX_MESSAGE_BURST=12 MAX_MESSAGE_STRIKES=80 node server/index.js --prod
+URL=ws://localhost:8083/ws MAX_CONNECTIONS_PER_IP=3 MAX_ROOMS=2 \
+  MAX_MESSAGES_PER_SECOND=10 MAX_MESSAGE_BURST=12 MAX_MESSAGE_STRIKES=80 npm run test:limits
+```
+
+Detrás del host, la IP real llega en `X-Forwarded-For`; por eso en producción se confía en
+esa cabecera al contar conexiones. Si expones el servidor sin proxy, arranca con
+`TRUST_PROXY=0` para que nadie pueda falsear la dirección.
 
 ## Límites y cuidados
 

@@ -114,9 +114,13 @@ const adminTools = process.env.ADMIN_TOOLS === '1' || process.env.ADMIN_TOOLS ==
 // Plazo de reconexión configurable: sirve para probar el corte de red sin
 // esperar los 40 s reales. Sin variable se usa el valor por defecto.
 const reconnectGrace = Number(process.env.RECONNECT_GRACE);
+// Detrás del host (Fly, Render, Railway) la IP real llega en X-Forwarded-For. Si
+// el servidor se expone directo, TRUST_PROXY=0 evita que se pueda falsear.
+const trustProxy = process.env.TRUST_PROXY === '0' ? false : prod || process.env.TRUST_PROXY === '1';
 const game = createGame(wss, {
   admin: adminTools,
   graceSeconds: Number.isFinite(reconnectGrace) && reconnectGrace > 0 ? reconnectGrace : undefined,
+  trustProxy,
 });
 
 server.on('upgrade', (req, socket, head) => {

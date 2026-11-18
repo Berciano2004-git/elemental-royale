@@ -137,6 +137,49 @@ function rarityPower(rarity) {
 // Segundos que un mago desconectado sigue en pie antes de morir. Da tiempo a
 // recuperar el wifi o el móvil sin perder la partida por un parpadeo.
 const RECONNECT_GRACE = 40;
+
+// Límites de abuso. El cliente manda la entrada a 20 Hz, así que 40 mensajes por
+// segundo con ráfagas de 80 deja margen a casteos y clics sin ahogar una partida
+// normal. Todos se pueden ajustar por entorno, también para las pruebas.
+const DEFAULT_LIMITS = {
+  // Diez por dirección: cabe una casa entera (o un CGNAT móvil) jugando a la vez,
+  // pero no una avalancha de sockets desde un solo sitio.
+  connectionsPerIp: 10,
+  messagesPerSecond: 40,
+  messageBurst: 80,
+  messageStrikes: 200,
+  maxRooms: 32,
+};
+
+function limitOption(raw, fallback) {
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+// Dirección del cliente para el límite por IP. Detrás del host todas las
+// conexiones llegan desde el proxy, así que se usa la primera IP de
+// X-Forwarded-For; sin proxy vale la del socket.
+// Envío defensivo: se llama desde los rechazos, cuando el socket puede estar
+// cerrándose y `send` de la sala no está en este ámbito.
+function sendFrame(ws, data) {
+  if (!ws || ws.readyState !== 1) return;
+  try {
+    ws.send(JSON.stringify(data));
+  } catch {
+    /* la conexión se cerró mientras se escribía */
+  }
+}
+
+function clientAddress(req, trustProxy) {
+  if (!req) return 'desconocido';
+  if (trustProxy) {
+    const header = req.headers?.['x-forwarded-for'];
+    const first = Array.isArray(header) ? header[0] : String(header || '').split(',')[0];
+    const clean = String(first || '').trim();
+    if (clean) return clean;
+  }
+  return req.socket?.remoteAddress || 'desconocido';
+}
 // Una sala sin nadie se conserva un rato por si el mismo grupo vuelve con su
 // código; después se retira para no acumular mundos en memoria.
 const ROOM_IDLE_TTL = 60;
@@ -2326,21 +2369,82 @@ function createRoom(options = {}) {
 export function createGame(wss, options = {}) {
   const rooms = new Map();
   const roomOptions = { admin: options.admin !== false, graceSeconds: options.graceSeconds };
+  const limits = {
+    connectionsPerIp: limitOption(
+      options.connectionsPerIp ?? process.env.MAX_CONNECTIONS_PER_IP,
+      DEFAULT_LIMITS.connectionsPerIp
+    ),
+    messagesPerSecond: limitOption(
+      options.messagesPerSecond ?? process.env.MAX_MESSAGES_PER_SECOND,
+      DEFAULT_LIMITS.messagesPerSecond
+    ),
+    messageBurst: limitOption(options.messageBurst ?? process.env.MAX_MESSAGE_BURST, DEFAULT_LIMITS.messageBurst),
+    messageStrikes: limitOption(
+      options.messageStrikes ?? process.env.MAX_MESSAGE_STRIKES,
+      DEFAULT_LIMITS.messageStrikes
+    ),
+    maxRooms: limitOption(options.maxRooms ?? process.env.MAX_ROOMS, DEFAULT_LIMITS.maxRooms),
+  };
+  const trustProxy = options.trustProxy !== false;
+  // Conexiones abiertas por dirección; se descuentan al cerrar.
+  const connectionsByIp = new Map();
 
   function roomFor(rawCode) {
     const code = normalizeRoomCode(rawCode);
-    let room = rooms.get(code);
-    if (!room) {
-      room = createRoom({ ...roomOptions, code });
-      rooms.set(code, room);
-    }
+    const existing = rooms.get(code);
+    if (existing) return existing;
+    // El tope de salas evita que códigos al azar llenen la memoria del proceso.
+    if (rooms.size >= limits.maxRooms) return null;
+    const room = createRoom({ ...roomOptions, code });
+    rooms.set(code, room);
     return room;
   }
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
+    const address = clientAddress(req, trustProxy);
+    const open = connectionsByIp.get(address) || 0;
+    if (open >= limits.connectionsPerIp) {
+      sendFrame(ws, {
+        t: 'error',
+        msg: 'Demasiadas conexiones desde tu red. Espera un momento e inténtalo de nuevo.',
+      });
+      ws.close();
+      return;
+    }
+    connectionsByIp.set(address, open + 1);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      const left = (connectionsByIp.get(address) || 1) - 1;
+      if (left <= 0) connectionsByIp.delete(address);
+      else connectionsByIp.set(address, left);
+    };
+    ws.on('close', release);
+    ws.on('error', release);
+
+    // Cubo de fichas por conexión: absorbe ráfagas cortas (un casteo, varios
+    // clics) pero corta a quien machaca el protocolo.
+    const bucket = { tokens: limits.messageBurst, at: Date.now(), strikes: 0 };
     const conn = { room: null, client: null };
 
     ws.on('message', (raw) => {
+      const now = Date.now();
+      bucket.tokens = Math.min(
+        limits.messageBurst,
+        bucket.tokens + ((now - bucket.at) / 1000) * limits.messagesPerSecond
+      );
+      bucket.at = now;
+      if (bucket.tokens < 1) {
+        bucket.strikes += 1;
+        if (bucket.strikes >= limits.messageStrikes) {
+          sendFrame(ws, { t: 'error', msg: 'Vas demasiado rápido. Se ha cerrado la conexión.' });
+          ws.close();
+        }
+        return;
+      }
+      bucket.tokens -= 1;
+
       let msg;
       try {
         msg = JSON.parse(raw.toString());
@@ -2351,6 +2455,14 @@ export function createGame(wss, options = {}) {
       if (!conn.room) {
         if (msg.t !== 'join') return;
         const room = roomFor(msg.room);
+        if (!room) {
+          sendFrame(ws, {
+            t: 'error',
+            msg: `El servidor está al máximo de salas (${limits.maxRooms}). Prueba de nuevo en un rato.`,
+          });
+          ws.close();
+          return;
+        }
         const client = room.attach(ws, msg);
         if (!client) {
           ws.close();

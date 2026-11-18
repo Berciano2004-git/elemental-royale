@@ -395,6 +395,22 @@ PORT=8081 RECONNECT_GRACE=3 node server/index.js
 URL=ws://localhost:8081/ws npm run test:rooms
 ```
 
+El blindaje del servidor (conexiones por IP, ritmo de mensajes y tope de salas) se prueba con
+topes diminutos, para poder alcanzarlos:
+
+```bash
+PORT=8083 MAX_CONNECTIONS_PER_IP=3 MAX_ROOMS=2 MAX_MESSAGES_PER_SECOND=10 \
+  MAX_MESSAGE_BURST=12 MAX_MESSAGE_STRIKES=80 node server/index.js --prod
+URL=ws://localhost:8083/ws MAX_CONNECTIONS_PER_IP=3 MAX_ROOMS=2 \
+  MAX_MESSAGES_PER_SECOND=10 MAX_MESSAGE_BURST=12 MAX_MESSAGE_STRIKES=80 npm run test:limits
+```
+
+Y una URL ya publicada se verifica entera con un comando:
+
+```bash
+npm run verify:public -- https://tu-app.fly.dev
+```
+
 El grimario completo se prueba en desarrollo, porque usa el teletransporte de la consola:
 
 ```bash
