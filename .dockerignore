@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.github
+screenshots
+tmp-*
+tmp-rig
+tmp-inspect
+tmp-inspect$P
+assets-source
+tools
+scripts
+*.log
+.env
+.env.local

@@ -49,8 +49,16 @@ npm start          # http://localhost:8080
 
 > En Windows, si `npm start` no abre el puerto, comprueba que no haya otra instancia usando el
 > 8080 o define otro puerto: `PORT=8090 npm run dev`.
-> Para jugar fuera de la LAN, el servidor debe estar accesible (por ejemplo, con un túnel o un
-> hosting de Node con WebSocket). El proyecto no incluye HTTPS ni autenticación de cuentas.
+> El proyecto no incluye HTTPS ni autenticación de cuentas: el TLS lo pone el host donde se publica.
+
+### 🌍 Servidor público
+
+El repositorio está listo para publicarse en un host de contenedores con TLS y WebSocket:
+`Dockerfile`, `.dockerignore`, `fly.toml` y la sonda `/healthz`. Los pasos, las variables de
+entorno y las comprobaciones están en **[DESPLIEGUE.md](DESPLIEGUE.md)**.
+
+- **Jugar en línea:** pendiente de publicar. En cuanto exista la instancia, la URL se anota aquí
+  y el botón **«Copiar enlace»** del lobby reparte ese mismo enlace con el código de sala.
 
 ---
 

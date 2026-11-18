@@ -81,6 +81,21 @@ function serveStatic(req, res) {
 }
 
 const server = http.createServer((req, res) => {
+  // Sonda de salud para el host: dice si el proceso vive y cuántas salas hay
+  // abiertas. No toca la partida ni sirve estado de jugadores.
+  if (req.url === '/healthz') {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(
+      JSON.stringify({
+        ok: true,
+        uptime: Math.round(process.uptime()),
+        rooms: game ? game.rooms.size : 0,
+        players: game ? [...game.rooms.values()].reduce((sum, room) => sum + room.size, 0) : 0,
+      })
+    );
+    return;
+  }
   if (vite) {
     vite.middlewares(req, res, () => {
       res.statusCode = 404;
@@ -99,7 +114,7 @@ const adminTools = process.env.ADMIN_TOOLS === '1' || process.env.ADMIN_TOOLS ==
 // Plazo de reconexión configurable: sirve para probar el corte de red sin
 // esperar los 40 s reales. Sin variable se usa el valor por defecto.
 const reconnectGrace = Number(process.env.RECONNECT_GRACE);
-createGame(wss, {
+const game = createGame(wss, {
   admin: adminTools,
   graceSeconds: Number.isFinite(reconnectGrace) && reconnectGrace > 0 ? reconnectGrace : undefined,
 });

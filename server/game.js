@@ -2311,6 +2311,10 @@ function createRoom(options = {}) {
     disconnect: handleDisconnect,
     tick,
     isEmpty: () => clients.size === 0 && parked.size === 0,
+    // Magos en la sala, incluidos los que están reconectando.
+    get size() {
+      return joinedClients().length + parked.size;
+    },
     get idle() {
       return idleFor;
     },
