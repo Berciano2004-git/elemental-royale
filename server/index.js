@@ -138,14 +138,38 @@ server.on('upgrade', (req, socket, head) => {
   }
 });
 
+// Direcciones para compartir en la red local. Se ordenan por utilidad: primero la
+// Wi-Fi o el cable, y al final los adaptadores virtuales (VirtualBox, WSL, Hyper-V),
+// que existen pero no llegan a los amigos.
+function lanAddresses() {
+  const virtual = /vethernet|virtual|vmware|hyper-v|wsl|loopback|docker|bluetooth|tap|tun/i;
+  const preferred = /wi-?fi|wlan|wireless|ethernet|eth|en\d/i;
+  const score = ({ name, iface }) => {
+    let value = 0;
+    if (virtual.test(name)) value -= 10;
+    if (preferred.test(name)) value += 5;
+    if (iface.address.startsWith('10.')) value += 3;
+    else if (iface.address.startsWith('192.168.')) value += 2;
+    else if (/^172\.(1[6-9]|2\d|3[01])\./.test(iface.address)) value += 1;
+    return value;
+  };
+  return Object.entries(os.networkInterfaces())
+    .flatMap(([name, list]) => (list || []).map((iface) => ({ name, iface })))
+    .filter(({ iface }) => iface && iface.family === 'IPv4' && !iface.internal)
+    .sort((a, b) => score(b) - score(a))
+    .slice(0, 2)
+    .map(({ iface }) => iface.address);
+}
+
 server.listen(port, '0.0.0.0', () => {
-  const lan = Object.values(os.networkInterfaces())
-    .flat()
-    .find((iface) => iface && iface.family === 'IPv4' && !iface.internal);
   console.log('');
   console.log('  ✦ ELEMENTAL ROYALE ✦');
   console.log(`  Local:   http://localhost:${port}`);
-  if (lan) console.log(`  Red LAN: http://${lan.address}:${port}  (comparte esta URL para jugar con amigos)`);
+  const lan = lanAddresses();
+  if (lan.length) {
+    console.log(`  Red LAN: http://${lan[0]}:${port}  (comparte esta URL con quien esté en tu misma red)`);
+    for (const extra of lan.slice(1)) console.log(`           http://${extra}:${port}  (otra interfaz)`);
+  }
   console.log(`  Modo:    ${prod ? 'producción (dist/)' : 'desarrollo (Vite)'}`);
   console.log('');
 });
