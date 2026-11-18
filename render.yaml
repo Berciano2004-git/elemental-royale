@@ -1,0 +1,21 @@
+# Blueprint de Render: en el panel, New → Blueprint y elige este repositorio.
+# Render lee este archivo y crea el servicio ya configurado.
+services:
+  - type: web
+    name: elemental-royale
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # Una sola instancia: las salas y las partidas viven en memoria del proceso.
+    numInstances: 1
+    # El plan gratuito duerme el servicio por inactividad y corta las salas;
+    # para un enlace permanente, usa un plan siempre encendido.
+    plan: starter
+    region: frankfurt
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8080
+      # La consola del Archimago no debe aceptar cambios de servidor en público:
+      # ADMIN_TOOLS se deja sin definir a propósito.

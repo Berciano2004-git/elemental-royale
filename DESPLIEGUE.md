@@ -12,6 +12,7 @@ opcional) y las salas viven en memoria del proceso.
 | `Dockerfile` | Compila `dist/` y deja una imagen de producción con solo dependencias de ejecución. |
 | `.dockerignore` | Deja fuera `node_modules`, `dist`, `.env`, capturas y carpetas de trabajo. |
 | `fly.toml` | Configuración lista para Fly.io: TLS, puerto 8080 y máquina siempre encendida. |
+| `render.yaml` | Blueprint de Render: un clic y el servicio queda con Docker, salud y una instancia. |
 | `/healthz` | Sonda que devuelve `{ ok, uptime, rooms, players }` para el host y para ti. |
 
 El cliente no tiene URLs escritas a mano: usa `location.host` y cambia solo a `wss://`
@@ -51,18 +52,32 @@ fly open
 La URL pública será `https://TU-APP.fly.dev`. El WebSocket queda en
 `wss://TU-APP.fly.dev/ws` sin configurar nada más.
 
-## Opción B — Render, Railway o Koyeb
+## Opción B — Render (blueprint incluido)
 
-Los tres aceptan el mismo `Dockerfile`:
+El repositorio trae `render.yaml`, así que no hay que configurar nada a mano:
 
-1. **New → Web Service** desde el repositorio de GitHub.
-2. Entorno **Docker** (no hay que definir *build command* ni *start command*).
-3. Puerto interno **8080** (`PORT` lo inyecta el host; el servidor ya lo respeta).
-4. **Una instancia** y *auto-sleep / scale to zero* **desactivados**.
-5. Salud: ruta `/healthz`.
+1. En el panel de Render: **New → Blueprint** y elige el repositorio
+   `Berciano2004-git/elemental-royale`.
+2. Render crea el servicio leyendo `render.yaml`: Docker, puerto 8080, salud en
+   `/healthz`, **una sola instancia** y `NODE_ENV=production`.
+3. **Apply** y espera al primer despliegue. La URL será del estilo
+   `https://elemental-royale-xxxx.onrender.com`.
 
-La URL la asigna el host (`https://algo.onrender.com`, etc.) y sirve igual: el cliente
-usa el mismo origen para la página y para el WebSocket.
+> El plan gratuito de Render **duerme** el servicio por inactividad y con él se pierden las
+> salas. Para un enlace permanente, un plan siempre encendido; si no, sirve para probar.
+
+## Opción C — Railway
+
+Railway detecta el `Dockerfile` solo:
+
+1. **New Project → Deploy from GitHub repo** y elige el repositorio.
+2. En **Settings → Networking**, pulsa **Generate Domain** para tener la URL pública.
+3. Comprueba que la variable `PORT` la aporta Railway (el servidor la lee y escucha en
+   `0.0.0.0`).
+4. Deja **una réplica** y sin *sleep* por inactividad. Salud: `/healthz`.
+
+La URL la asigna el host y sirve igual: el cliente usa el mismo origen para la página y
+para el WebSocket.
 
 ## Variables de entorno
 
