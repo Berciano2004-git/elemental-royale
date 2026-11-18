@@ -131,9 +131,9 @@ repositorio ni en la imagen: `.dockerignore` excluye `.env` y `.env.local`.
 Para jugar hoy mismo, con HTTPS y WebSocket, sin dar de alta nada. **Dura mientras el proceso
 siga vivo** y la URL cambia en cada arranque; no es un enlace permanente.
 
-El script `scripts/tunel.ps1` lo hace todo: compila si falta `dist/`, arranca el servidor en
-modo producción, abre el túnel y espera a que el enlace responda **por internet** antes de
-imprimir la URL con el código de sala.
+El script `scripts/tunel.ps1` lo hace todo: compila siempre (para no servir un `dist/` viejo a
+quien entre por el túnel), arranca el servidor en modo producción, abre el túnel y espera a
+que el enlace responda **por internet** antes de imprimir la URL con el código de sala.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\tunel.ps1 -Sala AMIGOS

@@ -69,11 +69,11 @@ try {
   Write-Host ''
 
   # --- 1. Cliente compilado -------------------------------------------------
-  if (-not (Test-Path (Join-Path $raiz 'dist/index.html'))) {
-    Write-Host '  Compilando el cliente (falta dist/)...' -ForegroundColor DarkGray
-    & npm run build
-    if ($LASTEXITCODE -ne 0) { throw 'La compilación ha fallado: revisa npm run build.' }
-  }
+  # Siempre, no solo cuando falta dist/: un dist/ viejo serviría un cliente
+  # desactualizado a quien entre por el túnel.
+  Write-Host '  Compilando el cliente...' -ForegroundColor DarkGray
+  & npm run build
+  if ($LASTEXITCODE -ne 0) { throw 'La compilación ha fallado: revisa npm run build.' }
 
   # --- 2. cloudflared ------------------------------------------------------
   if (-not (Test-Path $exe)) {
