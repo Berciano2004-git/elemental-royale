@@ -126,6 +126,40 @@ repositorio ni en la imagen: `.dockerignore` excluye `.env` y `.env.local`.
    (El plazo real de reconexión es de 40 s; para una pasada corta, despliega con
    `RECONNECT_GRACE=3` y vuelve a subirlo).
 
+## Túnel temporal desde tu PC (sin cuenta de host)
+
+Para jugar hoy mismo, con HTTPS y WebSocket, sin dar de alta nada. **Dura mientras el proceso
+siga vivo** y la URL cambia en cada arranque; no es un enlace permanente.
+
+En una terminal, desde la carpeta del proyecto:
+
+```powershell
+npm run build
+$env:PORT="8093"; node server/index.js --prod
+```
+
+En otra terminal, la misma carpeta:
+
+```powershell
+.\tmp-tunnel\cloudflared.exe tunnel --url http://127.0.0.1:8093 --protocol http2
+```
+
+La segunda imprime `https://algo-algo-algo.trycloudflare.com`: ese es el enlace, y con código
+de sala queda `https://…/?sala=CODIGO`. `cloudflared` no se versiona: se descarga una vez en
+`tmp-tunnel/` (ignorado por git) desde
+`https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe`.
+`--protocol http2` evita los cortes cuando la red bloquea QUIC (aquí los daba).
+
+Y se comprueba con el mismo verificador de siempre:
+
+```bash
+npm run verify:public -- https://algo-algo-algo.trycloudflare.com
+```
+
+El túnel se cae si cierras la terminal, si el PC entra en suspensión o si cambia la red. Al
+volver a arrancarlo la URL es distinta, así que hay que repartir la nueva. Cloudflare no
+garantiza disponibilidad en los túneles sin cuenta.
+
 ## Blindaje
 
 Cada conexión lleva un cubo de fichas y cada dirección un cupo, así que un script no puede
