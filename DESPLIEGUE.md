@@ -131,7 +131,28 @@ repositorio ni en la imagen: `.dockerignore` excluye `.env` y `.env.local`.
 Para jugar hoy mismo, con HTTPS y WebSocket, sin dar de alta nada. **Dura mientras el proceso
 siga vivo** y la URL cambia en cada arranque; no es un enlace permanente.
 
-En una terminal, desde la carpeta del proyecto:
+El script `scripts/tunel.ps1` lo hace todo: compila si falta `dist/`, arranca el servidor en
+modo producción, abre el túnel y espera a que el enlace responda **por internet** antes de
+imprimir la URL con el código de sala.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\tunel.ps1 -Sala AMIGOS
+```
+
+Parámetros: `-Sala` (código de sala; se limpia a `A-Z0-9` y 6 caracteres), `-Puerto` (8093 por
+defecto) y `-SoloProbar` (levanta, comprueba y cierra, sin quedarse esperando: sirve para
+verificar el propio script). Si ya hay un servidor respondiendo en ese puerto, lo reutiliza en
+vez de abrir otro. Al cerrar, para también el túnel y el servidor que arrancó; los logs quedan
+en `tmp-tunnel/`. `-ExecutionPolicy Bypass` evita el bloqueo de scripts sin tocar la política
+del sistema.
+
+El **530** de los primeros segundos es propagación del nombre nuevo en Cloudflare, no un
+fallo de red: en cuanto el nombre se enruta, la misma URL responde. El registro también puede
+quejarse una o dos veces con `Unauthorized: Tunnel not found` antes de conectar, y lo hace
+igual con `--protocol http2`: es el tiempo de alta, no QUIC bloqueado. Por eso el script
+reintenta la sonda antes de darte el enlace.
+
+A mano, si prefieres dos terminales, desde la carpeta del proyecto:
 
 ```powershell
 npm run build
@@ -141,14 +162,13 @@ $env:PORT="8093"; node server/index.js --prod
 En otra terminal, la misma carpeta:
 
 ```powershell
-.\tmp-tunnel\cloudflared.exe tunnel --url http://127.0.0.1:8093 --protocol http2
+.\tmp-tunnel\cloudflared.exe tunnel --url http://127.0.0.1:8093
 ```
 
 La segunda imprime `https://algo-algo-algo.trycloudflare.com`: ese es el enlace, y con código
-de sala queda `https://…/?sala=CODIGO`. `cloudflared` no se versiona: se descarga una vez en
-`tmp-tunnel/` (ignorado por git) desde
+de sala queda `https://…/?sala=CODIGO`. `cloudflared` no se versiona: el script lo descarga una
+sola vez en `tmp-tunnel/` (ignorado por git) desde
 `https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe`.
-`--protocol http2` evita los cortes cuando la red bloquea QUIC (aquí los daba).
 
 Y se comprueba con el mismo verificador de siempre:
 
