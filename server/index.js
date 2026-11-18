@@ -96,7 +96,13 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 });
 // desarrollo o si se habilitan explícitamente (ADMIN_TOOLS=1). Así una partida
 // publicada no permite que ningún cliente se ajuste daño o velocidad.
 const adminTools = process.env.ADMIN_TOOLS === '1' || process.env.ADMIN_TOOLS === 'true' || !prod;
-createGame(wss, { admin: adminTools });
+// Plazo de reconexión configurable: sirve para probar el corte de red sin
+// esperar los 40 s reales. Sin variable se usa el valor por defecto.
+const reconnectGrace = Number(process.env.RECONNECT_GRACE);
+createGame(wss, {
+  admin: adminTools,
+  graceSeconds: Number.isFinite(reconnectGrace) && reconnectGrace > 0 ? reconnectGrace : undefined,
+});
 
 server.on('upgrade', (req, socket, head) => {
   let pathname = '';

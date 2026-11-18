@@ -27,8 +27,18 @@ npm run dev
 
 Abre **http://localhost:8080**. La consola mostrará también una URL de **red LAN**
 (`http://192.168.x.x:8080`): compártela con otras personas en la misma red y aparecerán en tu
-sala. Cuando la primera persona entra, la cuenta atrás de 15 segundos empieza; el anfitrión
-puede pulsar **«Empezar ahora»**. Los magos IA rellenan los huecos hasta 10.
+sala. Cuando la primera persona entra, la cuenta atrás de 15 segundos empieza; cualquiera de la
+sala puede pulsar **«Jugar ya»** para empezar sin esperarla. Los magos IA rellenan los huecos
+hasta 10.
+
+Para jugar solo con tu grupo, escribe un **código de sala** en el menú (hasta 6 letras y
+números) o abre un enlace con `?sala=CODIGO`: cada código abre una sala aparte y solo comparte
+partida quien use el mismo. El código se recuerda en el navegador y el lobby tiene un botón para
+copiar el enlace.
+
+Si se cae la conexión a mitad de partida, el servidor mantiene al mago en pie **40 segundos** y
+el juego reintenta solo: al volver la red sigues con tu vida, tus poderes y tu sitio. Si el
+plazo se agota, el mago cae y el resto lo ve en el registro de la partida.
 
 Para servir la versión compilada:
 
@@ -349,8 +359,9 @@ recogidas. Los bots se identifican como IA en la lista de jugadores.
 
 ### Protocolo (resumen)
 
-- Cliente → servidor: `join`, `look`, `start`, `input`, `select`, `jump`, `cast`, `combo`,
-  `adminTune` y `adminTeleport` (los dos últimos solo si el servidor habilita la consola).
+- Cliente → servidor: `join` (con `room` y `token` de sesión), `look`, `start`, `input`,
+  `select`, `jump`, `cast`, `combo`, `adminTune` y `adminTeleport` (los dos últimos solo si el
+  servidor habilita la consola).
 - Servidor → cliente: `welcome` (incluye `admin`), `lobby`, `start`, `snap`, `end`, `error`,
   `admin` (confirmación de tuning) y `adminTeleport` (resultado del salto).
 - Las instantáneas incluyen jugadores, proyectiles, zonas persistentes, tormenta, altura de
@@ -367,6 +378,13 @@ Con un servidor de pruebas en el puerto 8081:
 PORT=8081 node server/index.js --prod
 npm run test:match     # conexión, inicio, movimiento, botín, hechizo y combinación
 npm run test:end       # partida completa hasta el ganador y reinicio de sala (varios minutos)
+```
+
+Salas y reconexión se prueban con un plazo de gracia corto para no esperar los 40 s reales:
+
+```bash
+PORT=8081 RECONNECT_GRACE=3 node server/index.js
+URL=ws://localhost:8081/ws npm run test:rooms
 ```
 
 El grimario completo se prueba en desarrollo, porque usa el teletransporte de la consola:

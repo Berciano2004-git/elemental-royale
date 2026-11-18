@@ -134,12 +134,38 @@ function rarityPower(rarity) {
   return (RARITIES[rarity] || RARITIES.common).power;
 }
 
-export function createGame(wss, options = {}) {
+// Segundos que un mago desconectado sigue en pie antes de morir. Da tiempo a
+// recuperar el wifi o el móvil sin perder la partida por un parpadeo.
+const RECONNECT_GRACE = 40;
+// Una sala sin nadie se conserva un rato por si el mismo grupo vuelve con su
+// código; después se retira para no acumular mundos en memoria.
+const ROOM_IDLE_TTL = 60;
+
+// Código de sala: corto, en mayúsculas y sin caracteres raros. Vacío es la sala
+// pública, la de siempre.
+function normalizeRoomCode(raw) {
+  return String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || 'MAIN';
+}
+
+const TOKEN_RE = /^[a-zA-Z0-9_-]{8,64}$/;
+function sanitizeToken(raw) {
+  return typeof raw === 'string' && TOKEN_RE.test(raw) ? raw : '';
+}
+
+// Una sala: un lobby, una partida y sus clientes. El proceso mantiene varias a
+// la vez, una por código, de modo que un grupo de amigos juega aislado.
+function createRoom(options = {}) {
+  const code = options.code || 'MAIN';
   const adminEnabled = options.admin !== false;
+  const graceSeconds = Math.max(0, num(options.graceSeconds, RECONNECT_GRACE));
   const clients = new Map();
+  // Magos cuya conexión se ha caído y esperan poder volver. No reciben
+  // mensajes, pero siguen vivos en la partida con su sitio y sus poderes.
+  const parked = new Set();
   let nextClientId = 1;
   let state = createLobbyState();
   let snapAcc = 0;
+  let idleFor = 0;
 
   function createLobbyState() {
     return {
@@ -211,47 +237,133 @@ export function createGame(wss, options = {}) {
       phase: state.phase,
       hostId: hostClient()?.id || 0,
       capacity: MATCH_PLAYERS,
+      room: code,
+      grace: graceSeconds,
     };
     for (const client of joined) send(client.ws, payload);
   }
 
+  function notify(text) {
+    for (const client of joinedClients()) send(client.ws, { t: 'notice', msg: text });
+  }
+
+  // Las plazas de quien está reconectando siguen reservadas: si no, su vuelta
+  // podría encontrarse la sala llena con su propio mago dentro.
+  function roomFull() {
+    return joinedClients().length + parked.size >= MATCH_PLAYERS;
+  }
+
+  // Lo mismo que se manda al empezar, pero reutilizado al volver a la partida.
+  function startPayload(player, resumed = false) {
+    return {
+      t: 'start',
+      resume: resumed,
+      seed: state.seed,
+      you: player.id,
+      storm: stormPublic(),
+      players: state.players.map((pl) => ({
+        id: pl.id,
+        name: pl.name,
+        look: pl.look,
+        bot: pl.bot,
+        x: r1(pl.x),
+        z: r1(pl.z),
+      })),
+      pickups: state.pickups.map(publicPickup),
+    };
+  }
+
+  function endMessageFor(player) {
+    const sorted = [...state.players].sort((a, b) => (a.place || 99) - (b.place || 99));
+    return {
+      t: 'end',
+      winner: state.winner,
+      you: { name: player.name, place: player.place || 2, kills: player.kills },
+      top: sorted.slice(0, 3).map((pl) => ({ name: pl.name, kills: pl.kills, place: pl.place || 2, look: pl.look })),
+    };
+  }
+
   // ---------------------------------------------------------------- conexión
 
-  wss.on('connection', (ws) => {
-    if (joinedClients().length >= MATCH_PLAYERS) {
-      send(ws, { t: 'error', msg: 'La sala está llena (10 magos). Inténtalo de nuevo en unos segundos.' });
-      ws.close();
-      return;
+  // Primer mensaje de una conexión (`join`): registra al mago en esta sala o
+  // devuelve `null` si no queda sitio.
+  function attach(ws, msg) {
+    if (roomFull()) {
+      send(ws, {
+        t: 'error',
+        msg: `La sala ${code} está llena (10 magos). Prueba otro código o espera a la próxima ronda.`,
+      });
+      return null;
     }
+
+    const token = sanitizeToken(msg.token);
+    const waiting = token ? [...parked].find((c) => c.token === token) : null;
+    if (waiting) return resume(waiting, ws);
 
     const client = {
       id: nextClientId++,
       ws,
-      joined: false,
-      name: '',
-      look: defaultLook(),
+      joined: true,
+      name: sanitizeName(msg.name),
+      look: sanitizeLook(msg.look),
       player: null,
+      token,
+      grace: 0,
+      resumed: false,
     };
     clients.set(ws, client);
-
-    ws.on('message', (raw) => {
-      let msg;
-      try {
-        msg = JSON.parse(raw.toString());
-      } catch {
-        return;
-      }
-      if (!msg || typeof msg !== 'object') return;
-      handleMessage(client, msg);
+    send(ws, {
+      t: 'welcome',
+      id: client.id,
+      name: client.name,
+      look: client.look,
+      hostId: hostClient()?.id || 0,
+      admin: adminEnabled,
+      room: code,
+      token,
+      resumed: false,
     });
+    broadcastLobby();
+    return client;
+  }
 
-    ws.on('close', () => handleDisconnect(client));
-    ws.on('error', () => handleDisconnect(client));
-  });
+  // Vuelta dentro del plazo: se reengancha el mismo mago, con su vida, sus
+  // poderes y su sitio, en lugar de crear uno nuevo desde cero.
+  function resume(client, ws) {
+    parked.delete(client);
+    clients.set(ws, client);
+    client.ws = ws;
+    client.grace = 0;
+    client.joined = true;
+    client.resumed = true;
+    send(ws, {
+      t: 'welcome',
+      id: client.id,
+      name: client.name,
+      look: client.look,
+      hostId: hostClient()?.id || 0,
+      admin: adminEnabled,
+      room: code,
+      token: client.token,
+      resumed: true,
+    });
+    const p = client.player;
+    if (p && (state.phase === 'match' || state.phase === 'ending')) {
+      send(ws, startPayload(p, true));
+      if (state.phase === 'ending') send(ws, endMessageFor(p));
+      broadcastSnapshot();
+      notify(`${client.name} ha vuelto a la partida.`);
+    } else {
+      broadcastLobby();
+    }
+    return client;
+  }
 
   function handleMessage(client, msg) {
     switch (msg.t) {
       case 'join': {
+        // La entrada real la resuelve la sala al conectar; este caso solo
+        // refresca nombre y aspecto de quien ya está dentro.
         client.name = sanitizeName(msg.name);
         client.look = sanitizeLook(msg.look);
         client.joined = true;
@@ -262,6 +374,9 @@ export function createGame(wss, options = {}) {
           look: client.look,
           hostId: hostClient()?.id || 0,
           admin: adminEnabled,
+          room: code,
+          token: client.token,
+          resumed: !!client.resumed,
         });
         broadcastLobby();
         break;
@@ -274,9 +389,10 @@ export function createGame(wss, options = {}) {
         break;
       }
       case 'start': {
+        // Cualquier mago de la sala puede arrancar: nadie debe esperar a que el
+        // anfitrión pulse si el grupo ya está listo.
         if (!client.joined) return;
         if (state.phase !== 'lobby') return;
-        if (hostClient() !== client) return;
         startMatch();
         break;
       }
@@ -373,16 +489,56 @@ export function createGame(wss, options = {}) {
   }
 
   function handleDisconnect(client) {
-    if (!clients.has(client.ws)) return;
+    if (!client || clients.get(client.ws) !== client) return;
     clients.delete(client.ws);
+    client.ws = null;
     const p = client.player;
     if (state.phase === 'match' && p && p.alive) {
-      killPlayer(p, null, 'abandonó la partida');
+      if (graceSeconds > 0) {
+        // El mago se queda quieto y expuesto durante el plazo: si vuelve,
+        // recupera su partida; si no, muere como cualquier otro.
+        client.grace = graceSeconds;
+        parked.add(client);
+        p.input.x = 0;
+        p.input.z = 0;
+        p.input.sprint = false;
+        notify(`${client.name} se ha desconectado: ${Math.round(graceSeconds)} s para volver.`);
+      } else {
+        killPlayer(p, null, 'abandonó la partida');
+      }
     }
-    if (state.phase !== 'lobby' && joinedClients().length === 0) {
+    settleRoom();
+  }
+
+  // La sala se queda sin nadie: se cierra la partida. Si aún hay magos
+  // esperando reconexión, se mantiene en pie hasta que expire el plazo.
+  function settleRoom() {
+    if (state.phase !== 'lobby' && joinedClients().length === 0 && parked.size === 0) {
       toLobby();
     } else if (state.phase === 'lobby') {
       broadcastLobby();
+    }
+  }
+
+  function updateParked(dt) {
+    if (state.phase !== 'match') {
+      parked.clear();
+      return;
+    }
+    for (const client of [...parked]) {
+      const p = client.player;
+      if (!p || !p.alive) {
+        // Murió mientras estaba desconectado: ya no hay partida a la que volver.
+        parked.delete(client);
+        client.player = null;
+        continue;
+      }
+      client.grace -= dt;
+      if (client.grace > 0) continue;
+      parked.delete(client);
+      client.player = null;
+      killPlayer(p, null, 'se desconectó');
+      settleRoom();
     }
   }
 
@@ -446,22 +602,7 @@ export function createGame(wss, options = {}) {
     generatePickups(world, spawns);
 
     for (const client of humans) {
-      const p = client.player;
-      send(client.ws, {
-        t: 'start',
-        seed,
-        you: p.id,
-        storm: stormPublic(),
-        players: state.players.map((pl) => ({
-          id: pl.id,
-          name: pl.name,
-          look: pl.look,
-          bot: pl.bot,
-          x: r1(pl.x),
-          z: r1(pl.z),
-        })),
-        pickups: state.pickups.map(publicPickup),
-      });
+      send(client.ws, startPayload(client.player));
     }
 
     broadcastLobby();
@@ -1439,12 +1580,7 @@ export function createGame(wss, options = {}) {
     for (const client of joinedClients()) {
       const p = client.player;
       if (!p) continue;
-      send(client.ws, {
-        t: 'end',
-        winner: state.winner,
-        you: { name: p.name, place: p.place || 2, kills: p.kills },
-        top: sorted.slice(0, 3).map((pl) => ({ name: pl.name, kills: pl.kills, place: pl.place || 2, look: pl.look })),
-      });
+      send(client.ws, endMessageFor(p));
     }
     broadcastSnapshot();
 
@@ -1467,7 +1603,8 @@ export function createGame(wss, options = {}) {
   }
 
   function toLobby() {
-    for (const client of clients.values()) client.player = null;
+    for (const client of [...clients.values(), ...parked]) client.player = null;
+    parked.clear();
     state = createLobbyState();
     snapAcc = 0;
     broadcastLobby();
@@ -2152,6 +2289,86 @@ export function createGame(wss, options = {}) {
 
   // ---------------------------------------------------------------- bucle
 
+  function tick(dt) {
+    if (clients.size === 0 && parked.size === 0) idleFor += dt;
+    else idleFor = 0;
+
+    if (state.phase === 'lobby') {
+      updateLobby(dt);
+    } else if (state.phase === 'match') {
+      simulate(dt);
+      updateParked(dt);
+    } else if (state.phase === 'ending') {
+      state.endTimer -= dt;
+      if (state.endTimer <= 0) toLobby();
+    }
+  }
+
+  return {
+    code,
+    attach,
+    message: handleMessage,
+    disconnect: handleDisconnect,
+    tick,
+    isEmpty: () => clients.size === 0 && parked.size === 0,
+    get idle() {
+      return idleFor;
+    },
+  };
+}
+
+// El proceso reparte las conexiones entre salas: la primera tarea de cada
+// socket es un `join` con su código, y a partir de ahí todo va a esa sala.
+export function createGame(wss, options = {}) {
+  const rooms = new Map();
+  const roomOptions = { admin: options.admin !== false, graceSeconds: options.graceSeconds };
+
+  function roomFor(rawCode) {
+    const code = normalizeRoomCode(rawCode);
+    let room = rooms.get(code);
+    if (!room) {
+      room = createRoom({ ...roomOptions, code });
+      rooms.set(code, room);
+    }
+    return room;
+  }
+
+  wss.on('connection', (ws) => {
+    const conn = { room: null, client: null };
+
+    ws.on('message', (raw) => {
+      let msg;
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+      if (!msg || typeof msg !== 'object') return;
+      if (!conn.room) {
+        if (msg.t !== 'join') return;
+        const room = roomFor(msg.room);
+        const client = room.attach(ws, msg);
+        if (!client) {
+          ws.close();
+          return;
+        }
+        conn.room = room;
+        conn.client = client;
+        return;
+      }
+      conn.room.message(conn.client, msg);
+    });
+
+    const bye = () => {
+      if (!conn.room) return;
+      conn.room.disconnect(conn.client);
+      conn.room = null;
+      conn.client = null;
+    };
+    ws.on('close', bye);
+    ws.on('error', bye);
+  });
+
   let last = Date.now();
   const loop = setInterval(() => {
     const now = Date.now();
@@ -2160,17 +2377,13 @@ export function createGame(wss, options = {}) {
     if (dt > 0.12) dt = 0.12;
     if (dt <= 0) return;
 
-    if (state.phase === 'lobby') {
-      updateLobby(dt);
-    } else if (state.phase === 'match') {
-      simulate(dt);
-    } else if (state.phase === 'ending') {
-      state.endTimer -= dt;
-      if (state.endTimer <= 0) toLobby();
+    for (const [code, room] of rooms) {
+      room.tick(dt);
+      if (room.isEmpty() && room.idle > ROOM_IDLE_TTL) rooms.delete(code);
     }
   }, 1000 / TICK_RATE);
 
   wss.on('close', () => clearInterval(loop));
 
-  return { close: () => clearInterval(loop) };
+  return { close: () => clearInterval(loop), rooms };
 }

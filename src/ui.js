@@ -29,6 +29,7 @@ const STORAGE = {
   name: 'elementalRoyale.name',
   look: 'elementalRoyale.look',
   settings: 'elementalRoyale.settings',
+  room: 'elementalRoyale.room',
 };
 
 function loadJSON(key, fallback) {
@@ -45,6 +46,31 @@ function loadJSON(key, fallback) {
 function storeJSON(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* almacenamiento no disponible */
+  }
+}
+
+// ------------------------------------------------------------------ sala
+
+// Código corto, sin distinguir mayúsculas: se escribe en el menú o llega en la
+// URL (?sala=ABC123). Se guarda para que recargar no te saque del grupo.
+function normalizeRoom(raw) {
+  return String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+}
+
+function savedRoom() {
+  try {
+    return normalizeRoom(localStorage.getItem(STORAGE.room) || '');
+  } catch {
+    return '';
+  }
+}
+
+function rememberRoom(code) {
+  try {
+    if (code) localStorage.setItem(STORAGE.room, code);
+    else localStorage.removeItem(STORAGE.room);
   } catch {
     /* almacenamiento no disponible */
   }
@@ -364,14 +390,16 @@ function showLobby(data, clientId) {
     empty.textContent = 'Conectando con la sala…';
     list.appendChild(empty);
   }
-  const isHost = data.hostId && data.hostId === selfClientId;
-  $('btn-start').classList.toggle('hidden', !(isHost && !data.inProgress));
+  const room = normalizeRoom(data.room) === 'MAIN' ? '' : normalizeRoom(data.room);
+  $('lobby-code').textContent = room || 'PÚBLICA';
+  // Cualquiera de la sala puede arrancar: si el grupo ya está listo, nadie
+  // tiene que esperar a que el anfitrión se decida.
+  $('btn-start').classList.toggle('hidden', !!data.inProgress);
   $('lobby-status').textContent = data.inProgress
     ? 'La partida ya está en curso. Entrarás en la siguiente ronda; puedes personalizar a tu mago mientras esperas.'
-    : isHost
-      ? 'Eres el anfitrión. Puedes empezar ya o esperar a que se complete el círculo de magos.'
-      : 'La partida comenzará automáticamente. Puedes editar tu mago mientras esperas.';
-  $('lobby-url').textContent = location.host;
+    : room
+      ? `Sala privada ${room}. Comparte el código o el enlace y pulsad «Jugar ya» cuando estéis todos.`
+      : 'Sala pública. Comparte el enlace con tus amigos o pulsa «Jugar ya» para empezar ya contra los magos IA.';
   $('lobby-wizard-name').textContent = name || 'Tu mago';
   const editing = ['customize', 'collection', 'settings'].includes(currentScreen);
   if (!editing) showWaiting(!!data.inProgress);
@@ -383,6 +411,17 @@ function showLobby(data, clientId) {
 function showWaiting(visible) {
   waitingOpen = visible;
   $('waiting-overlay').classList.toggle('hidden', !visible);
+}
+
+function showReconnect(text) {
+  const banner = $('reconnect-banner');
+  if (!banner) return;
+  $('reconnect-text').textContent = text;
+  banner.classList.remove('hidden');
+}
+
+function hideReconnect() {
+  $('reconnect-banner')?.classList.add('hidden');
 }
 
 function setLobbyStatus(text) {
@@ -583,6 +622,21 @@ export const ui = {
       callbacks.uiClick?.();
       callbacks.start?.();
     });
+    $('btn-copy-room').addEventListener('click', async () => {
+      const code = normalizeRoom($('input-room').value);
+      const base = `${location.origin}${location.pathname}`;
+      const text = code ? `${base}?sala=${code}` : base;
+      const button = $('btn-copy-room');
+      try {
+        await navigator.clipboard.writeText(text);
+        button.textContent = '¡Copiado!';
+      } catch {
+        button.textContent = code ? `sala ${code}` : 'Copia la URL';
+      }
+      setTimeout(() => {
+        button.textContent = 'Copiar enlace';
+      }, 1800);
+    });
     $('btn-again').addEventListener('click', () => callbacks.again?.());
     $('btn-lobby-customize').addEventListener('click', () => openCustomize('lobby'));
     $('btn-wait-customize').addEventListener('click', () => openCustomize('lobby'));
@@ -606,6 +660,17 @@ export const ui = {
       settings.quality = event.target.value;
       saveSettings();
       callbacks.onSettings?.(settings);
+    });
+
+    // El código puede llegar en el enlace compartido; si llega, manda sobre el
+    // guardado y se recuerda para la próxima vez.
+    const roomFromUrl = normalizeRoom(new URLSearchParams(location.search).get('sala'));
+    if (roomFromUrl) rememberRoom(roomFromUrl);
+    $('input-room').value = roomFromUrl || savedRoom();
+    $('input-room').addEventListener('input', (event) => {
+      const code = normalizeRoom(event.target.value);
+      event.target.value = code;
+      rememberRoom(code);
     });
 
     const handleName = (value) => {
@@ -635,6 +700,9 @@ export const ui = {
   showLobby,
   showWaiting,
   hideWaiting,
+  showReconnect,
+  hideReconnect,
+  getRoom: () => normalizeRoom($('input-room').value),
   showEnd,
   showPause,
   hidePause,

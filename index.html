@@ -97,6 +97,10 @@
       <div class="hud-hint">WASD mover &nbsp;·&nbsp; clic Izq./Der. + 4/5 lanzar &nbsp;·&nbsp; 1/2 cambiar elemento &nbsp;·&nbsp; 3 fusión &nbsp;·&nbsp; Q/E girar &nbsp;·&nbsp; R/F altura &nbsp;·&nbsp; Espacio saltar &nbsp;·&nbsp; Shift correr &nbsp;·&nbsp; V vista &nbsp;·&nbsp; Esc menú</div>
       <div id="toasts" class="toasts"></div>
       <div id="spectate-banner" class="spectate hidden">Observando la partida…</div>
+      <div id="reconnect-banner" class="reconnect-banner hidden">
+        <strong>Se ha perdido la conexión</strong>
+        <span id="reconnect-text">Reconectando…</span>
+      </div>
     </div>
 
     <div id="aim-cursor" class="hidden">
@@ -117,6 +121,8 @@
         <div class="home-menu glass">
           <label class="field-label" for="input-name">Tu nombre de mago</label>
           <input id="input-name" class="text-input" maxlength="20" placeholder="Escribe tu nombre" autocomplete="off" />
+          <label class="field-label" for="input-room">Código de sala <span class="field-hint">opcional</span></label>
+          <input id="input-room" class="text-input" maxlength="6" placeholder="Sala pública" autocomplete="off" spellcheck="false" />
 
           <button id="btn-play" class="btn btn-primary btn-big">Entrar al battle royale <span class="arrow">➜</span></button>
           <div class="menu-row">
@@ -264,7 +270,11 @@
     <section id="screen-lobby" class="screen hidden">
       <div class="screen-header">
         <div><span class="eyebrow">Sala de invocación</span><h2 id="lobby-title">Reuniendo magos…</h2></div>
-        <div class="lobby-code" title="Comparte la URL para jugar juntos"><span>EN LÍNEA</span><strong id="lobby-url">—</strong></div>
+        <div class="lobby-code" title="Comparte el código o el enlace para jugar juntos">
+          <span>SALA</span>
+          <strong id="lobby-code">PÚBLICA</strong>
+          <button id="btn-copy-room" class="btn btn-small">Copiar enlace</button>
+        </div>
       </div>
       <div class="lobby-grid">
         <div class="lobby-players glass">
@@ -277,7 +287,7 @@
             <div class="preview-frame small" id="preview-lobby"></div>
             <div class="lobby-preview-copy"><span class="eyebrow">Listo para luchar</span><strong id="lobby-wizard-name">Tu mago</strong><span id="lobby-countdown">15</span></div>
           </div>
-          <button id="btn-start" class="btn btn-primary btn-big hidden">Empezar ahora</button>
+          <button id="btn-start" class="btn btn-primary btn-big hidden">Jugar ya</button>
           <div class="lobby-status glass" id="lobby-status">La partida comenzará automáticamente. Mientras tanto, puedes editar tu mago.</div>
           <button id="btn-lobby-customize" class="btn btn-ghost">Editar apariencia</button>
         </div>

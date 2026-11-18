@@ -995,13 +995,28 @@ kbd {
 }
 
 .lobby-code strong {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
-  font-weight: 500;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.lobby-code .btn {
+  margin-top: 4px;
+  font-size: 11px;
+  padding: 6px 12px;
+}
+
+.field-hint {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: 0.8;
 }
 
 /* ---------------------------------------------------------------- carga */
@@ -1771,6 +1786,31 @@ kbd {
 
 #spectate-banner strong {
   color: var(--gold);
+}
+
+/* Aviso de reconexión: sale al perder el socket y se queda hasta que vuelve el
+   mago o se agota el plazo. */
+.reconnect-banner {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 10px 20px;
+  border-radius: 40px;
+  background: rgba(8, 12, 30, 0.88);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+  color: var(--muted);
+  z-index: 30;
+}
+
+.reconnect-banner strong {
+  color: var(--danger, #ff8a7a);
+  font-weight: 700;
 }
 
 /* cursor de apuntado */

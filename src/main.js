@@ -47,6 +47,23 @@ let fpsAccum = 0;
 let serverAllowsAdmin = false;
 let serverError = '';
 let tuneTimer = 0;
+// Identidad de la sesión para recuperar el mismo mago si se cae la conexión:
+// vive en la pestaña, así que dos pestañas no se pisan al reconectar.
+const SESSION_KEY = 'elementalRoyale.session';
+const RECONNECT_WINDOW = 45;
+let sessionToken = '';
+try {
+  sessionToken = sessionStorage.getItem(SESSION_KEY) || '';
+  if (!sessionToken) {
+    sessionToken = crypto.randomUUID?.() || `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+    sessionStorage.setItem(SESSION_KEY, sessionToken);
+  }
+} catch {
+  sessionToken = `t${Date.now().toString(36)}`;
+}
+let roomCode = '';
+const reconnect = { active: false, left: 0, ticker: 0, retry: 0 };
+const roomCodeOf = (raw) => String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 let mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 let orbiting = false;
 const keys = new Set();
@@ -291,7 +308,8 @@ async function joinGame() {
   try {
     await net.connect();
     joined = true;
-    net.send('join', { name: ui.getName(), look: ui.getLook() });
+    roomCode = ui.getRoom();
+    net.send('join', { name: ui.getName(), look: ui.getLook(), room: roomCode, token: sessionToken });
     ui.showScreen('lobby');
     ui.setLobbyStatus('Conectando con la sala…');
     ui.setConnection('');
@@ -367,9 +385,17 @@ net.on('welcome', (msg) => {
   serverAllowsAdmin = !!msg.admin;
   admin.setServer(serverAllowsAdmin);
   ui.setSelfClientId(msg.id);
+  if (msg.room) roomCode = roomCodeOf(msg.room);
   if (msg.name) {
     ui.adoptName?.(msg.name);
     hud.setPlayerName(msg.name);
+  }
+  if (msg.resumed) {
+    finishReconnect();
+  } else if (reconnect.active) {
+    // El servidor ya no guardaba este mago (se agotó el plazo, murió o la
+    // partida terminó): se queda en la sala esperando la siguiente ronda.
+    resetToLobby('Tu partida anterior ya había terminado. Esperas a la siguiente ronda.');
   }
 });
 
@@ -448,6 +474,12 @@ net.on('end', (msg) => {
   wasAlive = false;
 });
 
+net.on('notice', (msg) => {
+  if (!msg.msg) return;
+  if (inMatch) hud.toast(msg.msg, '#9feaff');
+  else ui.setLobbyStatus(msg.msg);
+});
+
 net.on('error', (msg) => {
   // Se guarda el motivo para que el cierre inmediato de la conexión no lo
   // sustituya por un «no se pudo conectar» genérico (por ejemplo, sala llena).
@@ -461,27 +493,119 @@ net.onClose((manual, wasConnected) => {
   serverAllowsAdmin = false;
   admin.setServer(false);
   joined = false;
-  if (manual) return;
+  if (manual) {
+    clearReconnectTimers();
+    ui.hideReconnect();
+    return;
+  }
+  // A mitad de partida el servidor guarda el mago unos segundos: se intenta
+  // volver a él antes que mandar al jugador al menú y perder la ronda.
+  if (inMatch && !matchEnded) {
+    beginReconnect();
+    return;
+  }
+  resetToHome(
+    serverError ||
+      (wasConnected ? 'Se perdió la conexión con la partida.' : 'No se pudo conectar con el servidor.')
+  );
+});
+
+// ------------------------------------------------------------ reconexión
+
+function clearReconnectTimers() {
+  clearInterval(reconnect.ticker);
+  clearTimeout(reconnect.retry);
+  reconnect.ticker = 0;
+  reconnect.retry = 0;
+  reconnect.active = false;
+}
+
+function resetToHome(message) {
   inMatch = false;
   loadingMatch = false;
   paused = false;
   gameView.clearMatch();
   hud.show(false);
   hud.reset();
+  hud.setSpectate(null);
   app.classList.remove('playing');
   ui.hidePause();
   ui.showWaiting(false);
   ui.showScreen('home');
-  ui.setConnection(
-    serverError ||
-      (wasConnected ? 'Se perdió la conexión con la partida.' : 'No se pudo conectar con el servidor.'),
-    true
-  );
+  ui.setConnection(message, true);
   serverError = '';
   audio.setStormIntensity(0);
-});
+}
+
+function beginReconnect() {
+  if (reconnect.active) return;
+  reconnect.active = true;
+  reconnect.left = RECONNECT_WINDOW;
+  ui.showReconnect(`Reconectando… ${reconnect.left} s`);
+  audio.setStormIntensity(0);
+  void attemptReconnect();
+  reconnect.ticker = setInterval(() => {
+    if (!reconnect.active) return;
+    reconnect.left -= 1;
+    if (reconnect.left <= 0) {
+      stopReconnect('No se pudo recuperar la conexión. Vuelve a entrar cuando tengas red.');
+      return;
+    }
+    ui.showReconnect(`Reconectando… ${reconnect.left} s`);
+  }, 1000);
+}
+
+async function attemptReconnect() {
+  if (!reconnect.active) return;
+  try {
+    await net.connect();
+    net.send('join', { name: ui.getName(), look: ui.getLook(), room: roomCode, token: sessionToken });
+  } catch {
+    /* se reintenta abajo */
+  }
+  if (!reconnect.active) return;
+  reconnect.retry = setTimeout(() => void attemptReconnect(), 2200);
+}
+
+function finishReconnect() {
+  clearReconnectTimers();
+  ui.hideReconnect();
+  joined = true;
+  serverError = '';
+  hud.toast('Conexión recuperada', '#8fe8ff');
+}
+
+function resetToLobby(message) {
+  clearReconnectTimers();
+  ui.hideReconnect();
+  inMatch = false;
+  loadingMatch = false;
+  matchEnded = false;
+  paused = false;
+  joined = true;
+  wasAlive = true;
+  keys.clear();
+  gameView.clearMatch();
+  hud.show(false);
+  hud.reset();
+  hud.setSpectate(null);
+  app.classList.remove('playing');
+  ui.hidePause();
+  ui.showWaiting(false);
+  ui.showScreen('lobby');
+  if (message) ui.toast(message);
+  audio.setStormIntensity(0);
+  audio.setMusicMode('menu');
+}
+
+function stopReconnect(message) {
+  clearReconnectTimers();
+  ui.hideReconnect();
+  resetToHome(message || 'Se perdió la conexión con la partida.');
+}
 
 async function startMatch(msg) {
+  ui.hideReconnect();
   inMatch = true;
   loadingMatch = true;
   matchEnded = false;
@@ -524,7 +648,10 @@ async function startMatch(msg) {
   hud.show(true);
   hud.setMinimapWorld(gameView.world.minimap);
   hud.setPlayerName(selfInfo?.name || ui.getName() || 'Mago');
-  hud.toast('Recoge cristales y combina dos elementos', '#8fe8ff');
+  hud.toast(
+    msg.resume ? 'De vuelta en la partida. Tu mago sigue en pie' : 'Recoge cristales y combina dos elementos',
+    '#8fe8ff'
+  );
   ui.setConnection('');
   startInputLoop();
   sendInput();

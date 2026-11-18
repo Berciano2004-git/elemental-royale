@@ -150,17 +150,36 @@ y puede forzar el inicio (`start`).
 ### 4.2 Máquina de estados
 
 ```
-lobby ──(cuenta atrás 15 s o start del anfitrión)──▶ match
-match ──(queda un vivo, o 420 s)──────────────────▶ ending (9 s)
-ending ──(fin del temporizador o todos se van)────▶ lobby
+lobby ──(cuenta atrás 15 s o start de cualquier mago)──▶ match
+match ──(queda un vivo, o 420 s)───────────────────────▶ ending (9 s)
+ending ──(fin del temporizador o todos se van)─────────▶ lobby
 ```
 
-- En `lobby` se difunde `lobby` cada segundo con jugadores, cuenta atrás, anfitrión y capacidad.
+- En `lobby` se difunde `lobby` cada segundo con jugadores, cuenta atrás, anfitrión, capacidad y
+  código de sala. El `start` no exige ser anfitrión: basta con estar en la sala.
 - `startMatch()` genera semilla, mundo, jugadores (humanos y bots), tormenta y botín, y envía a
   cada humano un `start` con la lista inicial y los cristales.
 - En `match` corre `simulate(dt)` a 30 Hz.
 - `finishMatch()` calcula el podio, envía `end` y deja 9 segundos para leer resultados.
 - Al volver a `lobby` se limpia el estado y los jugadores pueden cambiar de aspecto otra vez.
+
+### 4.2.1 Salas y reconexión
+
+El proceso mantiene **una sala por código** en un `Map` (`createGame` → `createRoom`). La primera
+frase de cada conexión es un `join` con `room`; a partir de ahí todos los mensajes van a esa sala
+y cada una tiene su propio estado, sus clientes y su reloj. Un código vacío es la sala `MAIN`, la
+pública de siempre. Un código normalizado (`A-Z0-9`, hasta 6) separa grupos sin cambiar el
+código del juego; las salas vacías se retiran al minuto para no acumular mundos.
+
+El `join` incluye también un `token` de sesión (por pestaña, en `sessionStorage`). Si un mago
+pierde la conexión durante una partida, no muere: sale de la lista de clientes activos, se queda
+quieto y **parked** durante `RECONNECT_GRACE` segundos (40 por defecto; `RECONNECT_GRACE` en el
+entorno lo cambia, útil para las pruebas). Mientras espera, su plaza sigue reservada y el resto
+recibe un aviso `notice`. Si vuelve con el mismo token, `attach` lo reconoce, le devuelve el
+mismo jugador (vida, poderes, sitio) y le reenvía `welcome` con `resumed: true` más el mismo
+`start` de la ronda, marcado con `resume: true`. Si el plazo se agota, `updateParked` lo mata
+con la causa `se desconectó`. El cliente reintenta durante 45 s y muestra un aviso de
+reconexión; si la partida ya no existe, cae en el lobby de su sala, no en el menú.
 
 ### 4.3 Bucle y reloj
 
