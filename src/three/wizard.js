@@ -28,6 +28,13 @@ const HAT_FIT = {
   fur: 0.92,
 };
 const hatFit = (hat) => HAT_FIT[hat] ?? 0.86;
+// La hechicera lleva la melena encima del cráneo, que es más voluminosa que el
+// corte corto del mago. La diadema es una cinta fina que apoya sobre el pelo:
+// si conserva la medida del mago, la melena la engulle y desaparece. Solo esta
+// pieza crece, y solo en la hechicera, para quedar por fuera de la melena.
+const HAT_FIT_HECHICERA = { crystal: 1.2 };
+const hatFitFor = (hat, style) =>
+  hatFit(hat) * (style === 'hechicera' ? HAT_FIT_HECHICERA[hat] ?? 1 : 1);
 const STAFF_SCALE = 0.62;
 const STAFF_GRIP = 1.32;
 
@@ -74,6 +81,10 @@ const SKIN_EYE_MASKS = [
   { cx: 0.757, cy: 0.632, rx: 0.015, ry: 0.012 },
   { cx: 0.575, cy: 0.836, rx: 0.015, ry: 0.012 },
 ];
+// Margen alrededor de las cajas de la cara dentro del cual el pelo pintado del
+// atlas se considera patilla. En la hechicera se repinta como piel, porque su
+// melena tapa el cuero cabelludo y esos mechones asomaban por delante.
+const SKIN_HAIRLINE_PAD = 0.075;
 function tintSkinTexture(map, skinHex, hairHex, softBrows = false) {
   if (!map || !map.image || !map.image.width) return map;
   const key = `${map.uuid}:${skinHex}:${hairHex}:${softBrows ? 1 : 0}`;
@@ -129,9 +140,20 @@ function tintSkinTexture(map, skinHex, hairHex, softBrows = false) {
       && r > g && g > b * 1.25;
     if (hairLike) {
       const shade = Math.min(1.22, Math.max(0.34, 0.55 + (luma - 0.18) * 2.1));
-      data[i] = Math.min(255, hr * shade);
-      data[i + 1] = Math.min(255, hg * shade);
-      data[i + 2] = Math.min(255, hb * shade);
+      // Las patillas y el nacimiento del pelo pintados junto a la cara no se
+      // ven con melena: sin repintarlos, quedan como un mechón corto suelto en
+      // la sien, por delante del pelo largo.
+      const nearFace = softBrows && SKIN_FACE_BOXES.some((box) => u >= box.u0 - SKIN_HAIRLINE_PAD
+        && u <= box.u1 + SKIN_HAIRLINE_PAD && v >= box.v0 - SKIN_HAIRLINE_PAD && v <= box.v1 + SKIN_HAIRLINE_PAD);
+      if (nearFace) {
+        data[i] = Math.min(255, tr * shade);
+        data[i + 1] = Math.min(255, tg * shade);
+        data[i + 2] = Math.min(255, tb * shade);
+      } else {
+        data[i] = Math.min(255, hr * shade);
+        data[i + 1] = Math.min(255, hg * shade);
+        data[i + 2] = Math.min(255, hb * shade);
+      }
       continue;
     }
 
@@ -254,19 +276,24 @@ function shapeHechiceraFace(geometry) {
 // cerrada y facetada se lee como volumen de pelo, no como mechones ni cables.
 function createHechiceraHair(color) {
   const SEG = 18;
-  // Cada anillo: altura, media anchura, z de la nuca y z de la frente. Por
-  // debajo del flequillo la frente se retrae hacia dentro del cráneo para abrir
-  // la cara; el borde visible de la melena queda en las sienes y las mejillas,
-  // que es por donde cae el pelo.
+  // Cada anillo: altura, media anchura, z de la nuca y z de la frente. El bajo
+  // del flequillo se retrae hacia dentro del cráneo para abrir la cara, pero
+  // mientras lo cubre la melena pasa por delante del pelo corto que el modelo
+  // trae modelado en la propia cabeza (hasta z 0,15): si la frente quedaba más
+  // atrás, esos mechones atravesaban el flequillo por las sienes.
   const rings = [
-    [0.300, 0.040, -0.036, 0.044],
-    [0.288, 0.082, -0.098, 0.082],
-    [0.270, 0.106, -0.124, 0.100],
-    [0.246, 0.126, -0.148, 0.116],
-    [0.218, 0.137, -0.166, 0.120],
-    [0.190, 0.146, -0.174, 0.122],
-    [0.158, 0.149, -0.178, 0.124],
-    [0.136, 0.151, -0.180, 0.124],
+    [0.300, 0.040, -0.036, 0.060],
+    [0.288, 0.082, -0.098, 0.108],
+    [0.270, 0.106, -0.124, 0.122],
+    [0.246, 0.126, -0.148, 0.146],
+    [0.218, 0.137, -0.166, 0.152],
+    [0.190, 0.146, -0.174, 0.160],
+    [0.158, 0.149, -0.178, 0.166],
+    [0.136, 0.151, -0.180, 0.166],
+    // Dos anillos de transición: el borde inferior del flequillo baja hacia la
+    // cara en pendiente, sin formar un alero plano sobre las cejas.
+    [0.124, 0.150, -0.180, 0.146],
+    [0.118, 0.148, -0.179, 0.104],
     [0.112, 0.144, -0.178, 0.014],
     [0.090, 0.145, -0.180, 0.000],
     [0.060, 0.144, -0.180, -0.012],
@@ -1093,7 +1120,7 @@ export function createWizard(look) {
   // ------------------------------------------------------------------ gorro
   const hatGroup = new THREE.Group();
   hatGroup.name = 'Gorro';
-  hatGroup.scale.setScalar(HAT_SCALE * hatFit(look.hat));
+  hatGroup.scale.setScalar(HAT_SCALE * hatFitFor(look.hat, style));
   const hatPivot = new THREE.Group();
   hatPivot.name = 'GorroPivote';
   // La frente queda a 0,58 del mentón y la coronilla a 0,86: el borde de los
@@ -2076,7 +2103,7 @@ export function createWizard(look) {
       }
     }
     shadow.visible = adminFlag('look.shadow', true) && !dead;
-    hatGroup.scale.setScalar(HAT_SCALE * hatFit(look.hat) * adminValue('size.hat', 1));
+    hatGroup.scale.setScalar(HAT_SCALE * hatFitFor(look.hat, style) * adminValue('size.hat', 1));
     staffGroup.scale.setScalar(STAFF_SCALE * adminValue('size.staff', 1) * GRIP_PARENT);
   }
 
