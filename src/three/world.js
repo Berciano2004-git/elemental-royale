@@ -172,15 +172,24 @@ function propGeometry(type) {
 // --------------------------------------------------------------------- mundo
 
 export class WorldView {
-  constructor(seed, quality = 'medium') {
-    this.seed = seed;
+  // `worldData` es un mundo de shared/worldgen.js o de shared/mapabaked.js: los
+  // dos exponen size, heightAt, sampleAt y waterSurface, así que el render no
+  // distingue si el mapa es procedural o importado.
+  constructor(worldData, quality = 'medium') {
+    this.worldData = worldData;
+    this.seed = worldData.seed ?? 0;
     this.quality = quality;
+    this.size = worldData.size || WORLD_SIZE;
+    this.half = this.size / 2;
     this.group = new THREE.Group();
-    this.heightAt = (x, z) => terrainSample(x, z, seed).height;
+    this.heightAt = (x, z) => worldData.heightAt(x, z);
+    this.sampleAt = (x, z) =>
+      worldData.sampleAt ? worldData.sampleAt(x, z) : terrainSample(x, z, this.seed);
     this.landmarks = [];
-    this.storm = { cx: 0, cz: 0, r: 1750, next: null };
-    this.stormTarget = { cx: 0, cz: 0, r: 1750, next: null };
+    this.storm = { cx: 0, cz: 0, r: this.size * 0.73, next: null };
+    this.stormTarget = { cx: 0, cz: 0, r: this.size * 0.73, next: null };
     this.buildTerrain();
+    this.buildStructures();
     this.buildWater();
     this.buildSky();
     this.buildProps();
@@ -198,8 +207,11 @@ export class WorldView {
   }
 
   buildTerrain() {
-    const segments = this.quality === 'low' ? 96 : this.quality === 'high' ? 190 : 140;
-    const geo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, segments, segments);
+    // El cuadro se mantiene parecido al del mapa procedural; el tope evita que
+    // un mapa de 8 km genere una malla de medio millón de vértices.
+    const base = this.quality === 'low' ? 96 : this.quality === 'high' ? 190 : 140;
+    const segments = Math.min(320, Math.round(base * (this.size / WORLD_SIZE)));
+    const geo = new THREE.PlaneGeometry(this.size, this.size, segments, segments);
     geo.rotateX(-Math.PI / 2);
     const position = geo.attributes.position;
     const colors = new Float32Array(position.count * 3);
@@ -210,7 +222,7 @@ export class WorldView {
     for (let i = 0; i < position.count; i++) {
       const x = position.getX(i);
       const z = position.getZ(i);
-      const sample = terrainSample(x, z, this.seed);
+      const sample = this.sampleAt(x, z);
       position.setY(i, sample.height);
       const palette = BIOME_COLORS[sample.biome] || BIOME_COLORS.grass;
       const noise = Math.sin(x * 0.13 + z * 0.31) * 0.5 + Math.sin(x * 0.041 - z * 0.083) * 0.5;
@@ -244,8 +256,35 @@ export class WorldView {
     this.group.add(this.terrain);
   }
 
+  // Torres y muros de un mapa importado: se dibujan con la misma paleta de
+  // piedra del resto del juego y su colisión vive en el mundo compartido.
+  buildStructures() {
+    const list = this.worldData.structures || [];
+    if (!list.length) return;
+    const stone = new THREE.MeshLambertMaterial({ color: 0x9a917f, flatShading: true });
+    const dark = new THREE.MeshLambertMaterial({ color: 0x6f6659, flatShading: true });
+    for (const c of list) {
+      const h = c.h || 10;
+      const y = this.heightAt(c.x, c.z);
+      let mesh;
+      if (c.t === 'cyl') {
+        mesh = new THREE.Mesh(new THREE.CylinderGeometry((c.r || 5) * 0.78, c.r || 5, h, 8), stone);
+      } else {
+        mesh = new THREE.Mesh(new THREE.BoxGeometry((c.hx || 4) * 2, h, (c.hz || 4) * 2), stone);
+        mesh.rotation.y = c.rot || 0;
+      }
+      mesh.position.set(c.x, y + h / 2 - 1, c.z);
+      this.group.add(mesh);
+      if (c.t === 'cyl') {
+        const cap = new THREE.Mesh(new THREE.ConeGeometry((c.r || 5) * 1.15, h * 0.28, 8), dark);
+        cap.position.set(c.x, y + h + h * 0.14 - 1, c.z);
+        this.group.add(cap);
+      }
+    }
+  }
+
   buildWater() {
-    const geometry = new THREE.PlaneGeometry(3600, 3600, 70, 70);
+    const geometry = new THREE.PlaneGeometry(this.size * 1.5, this.size * 1.5, 70, 70);
     geometry.rotateX(-Math.PI / 2);
     this.waterMaterial = new THREE.ShaderMaterial({
       transparent: true,
@@ -288,7 +327,7 @@ export class WorldView {
   }
 
   buildSky() {
-    const geometry = new THREE.SphereGeometry(3200, 32, 20);
+    const geometry = new THREE.SphereGeometry(this.size * 1.35, 32, 20);
     const material = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
@@ -466,12 +505,12 @@ export class WorldView {
     canvas.height = size;
     const ctx = canvas.getContext('2d');
     const image = ctx.createImageData(size, size);
-    const step = WORLD_SIZE / size;
+    const step = this.size / size;
     for (let py = 0; py < size; py++) {
       for (let px = 0; px < size; px++) {
-        const x = -WORLD_SIZE / 2 + (px + 0.5) * step;
-        const z = -WORLD_SIZE / 2 + (py + 0.5) * step;
-        const sample = terrainSample(x, z, this.seed);
+        const x = -this.size / 2 + (px + 0.5) * step;
+        const z = -this.size / 2 + (py + 0.5) * step;
+        const sample = this.sampleAt(x, z);
         const base = MINIMAP_COLORS[sample.biome] || MINIMAP_COLORS.grass;
         const shade = 1 - Math.min(0.32, Math.max(0, sample.height) / 120);
         const noise = (Math.sin(x * 0.31 + z * 0.17) + Math.sin(x * 0.07 - z * 0.09)) * 3;

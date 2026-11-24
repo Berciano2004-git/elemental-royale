@@ -505,11 +505,13 @@ export function createWorld(seed) {
 
 // Busca un punto caminable cerca de (x, z) usando una espiral determinista.
 export function findOpenSpot(world, x, z, rand, minRadius = 4) {
+  // Un mapa importado puede ser mayor que el procedural: se respetan sus bordes.
+  const half = world.halfSize ?? HALF_WORLD;
   for (let i = 0; i < 90; i++) {
     const ang = rand() * Math.PI * 2;
     const dist = minRadius + rand() * (i * 2 + 12);
-    const px = clamp(x + Math.cos(ang) * dist, -HALF_WORLD + 40, HALF_WORLD - 40);
-    const pz = clamp(z + Math.sin(ang) * dist, -HALF_WORLD + 40, HALF_WORLD - 40);
+    const px = clamp(x + Math.cos(ang) * dist, -half + 40, half - 40);
+    const pz = clamp(z + Math.sin(ang) * dist, -half + 40, half - 40);
     if (world.canStand(px, pz, 3.2)) return { x: px, z: pz };
   }
   return { x, z };

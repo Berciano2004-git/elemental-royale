@@ -17,6 +17,7 @@
     "test:rooms": "node scripts/test-rooms.mjs",
     "test:limits": "node scripts/test-limits.mjs",
     "verify:public": "node scripts/verify-public.mjs",
+    "mapa:hornear": "node scripts/hornear-mapa.mjs",
     "history": "node scripts/archil-history.mjs",
     "rig:optimize": "node tools/optimize-wizard.mjs",
     "rig": "node tools/rig-wizard.mjs",

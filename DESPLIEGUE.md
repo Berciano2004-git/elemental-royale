@@ -94,6 +94,7 @@ para el WebSocket.
 | `MAX_MESSAGE_BURST` | `80` | Ráfaga tolerada antes de descartar mensajes. |
 | `MAX_MESSAGE_STRIKES` | `200` | Descartes seguidos que cierran la conexión. |
 | `MAX_ROOMS` | `32` | Salas simultáneas en el proceso. |
+| `MAPA` | sin definir | Id de un mapa horneado de `assets/maps/` (`npm run mapa:hornear`). Sin ella, cada partida genera una isla procedural. |
 | `TRUST_PROXY` | activo en producción | Ponlo a `0` si expones el servidor sin proxy delante. |
 
 Los secretos van en el panel del host (`fly secrets set ARCHIL_API_KEY=...`), nunca en el

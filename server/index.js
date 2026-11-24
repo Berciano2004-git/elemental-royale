@@ -38,6 +38,7 @@ const MIME = {
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
   '.wasm': 'application/wasm',
+  '.bin': 'application/octet-stream',
 };
 
 let vite = null;
@@ -80,6 +81,37 @@ function serveStatic(req, res) {
   });
 }
 
+// Mapas horneados: assets/maps/<id>/. Se sirven también en desarrollo (antes
+// que Vite) para que el cliente cargue el mismo terreno que usa el servidor.
+const mapsRoot = path.join(root, 'assets', 'maps');
+
+function serveMap(req, res) {
+  let pathname;
+  try {
+    pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+  } catch {
+    res.statusCode = 400;
+    res.end('Petición inválida');
+    return;
+  }
+  const file = path.normalize(path.join(mapsRoot, pathname.replace(/^\/maps\//, '')));
+  if (!file.startsWith(`${mapsRoot}${path.sep}`) || !/\.(json|bin|png)$/i.test(file)) {
+    res.statusCode = 404;
+    res.end('No encontrado');
+    return;
+  }
+  fs.readFile(file, (err, data) => {
+    if (err) {
+      res.statusCode = 404;
+      res.end('No encontrado');
+      return;
+    }
+    res.setHeader('Content-Type', MIME[path.extname(file)] || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.end(data);
+  });
+}
+
 const server = http.createServer((req, res) => {
   // Sonda de salud para el host: dice si el proceso vive y cuántas salas hay
   // abiertas. No toca la partida ni sirve estado de jugadores.
@@ -94,6 +126,10 @@ const server = http.createServer((req, res) => {
         players: game ? [...game.rooms.values()].reduce((sum, room) => sum + room.size, 0) : 0,
       })
     );
+    return;
+  }
+  if (req.url.startsWith('/maps/')) {
+    serveMap(req, res);
     return;
   }
   if (vite) {
@@ -121,6 +157,7 @@ const game = createGame(wss, {
   admin: adminTools,
   graceSeconds: Number.isFinite(reconnectGrace) && reconnectGrace > 0 ? reconnectGrace : undefined,
   trustProxy,
+  mapa: process.env.MAPA || undefined,
 });
 
 server.on('upgrade', (req, socket, head) => {
@@ -171,6 +208,7 @@ server.listen(port, '0.0.0.0', () => {
     for (const extra of lan.slice(1)) console.log(`           http://${extra}:${port}  (otra interfaz)`);
   }
   console.log(`  Modo:    ${prod ? 'producción (dist/)' : 'desarrollo (Vite)'}`);
+  console.log(`  Mapa:    ${process.env.MAPA ? `${process.env.MAPA} (horneado)` : 'procedural (semilla por partida)'}`);
   console.log('');
 });
 

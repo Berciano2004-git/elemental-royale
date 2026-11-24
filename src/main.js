@@ -646,7 +646,7 @@ async function startMatch(msg) {
   app.classList.add('playing');
   ui.hideScreens();
   hud.show(true);
-  hud.setMinimapWorld(gameView.world.minimap);
+  hud.setMinimapWorld(gameView.world.minimap, gameView.world.size);
   hud.setPlayerName(selfInfo?.name || ui.getName() || 'Mago');
   hud.toast(
     msg.resume ? 'De vuelta en la partida. Tu mago sigue en pie' : 'Recoge cristales y combina dos elementos',

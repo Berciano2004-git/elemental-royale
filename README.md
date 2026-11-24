@@ -179,6 +179,23 @@ Cada partida genera una isla distinta a partir de una semilla:
 - **Tormenta arcana** en seis fases: daño creciente, círculo actual en morado y siguiente
   círculo marcado en el minimapa. El HUD indica los metros que faltan hasta el borde seguro.
 
+### Mapas importados
+
+El mapa procedural es el de siempre, pero el juego también puede jugar sobre un mapa
+horneado. El horneado convierte el mapa en archivos pequeños que comparten servidor y
+cliente, así que nadie carga el modelo original ni el servidor necesita el motor 3D:
+
+```bash
+npm run mapa:hornear                      # mapa de prueba sintético de 8 × 8 km
+npm run mapa:hornear -- --fuente=alturas.png --tamano=8000 --salida=assets/maps/mi-mapa
+MAPA=test-8km npm run dev                 # arranca el juego con ese mapa
+```
+
+Cada mapa deja en `assets/maps/<id>/` la rejilla de alturas y biomas (`terreno.bin`), las
+colisiones y los puntos de aparición (`meta.json`) y el minimapa (`minimapa.png`). La
+tormenta, los puntos de aparición y la densidad de botín se escalan solos con el tamaño
+del mapa, y el minimapa del HUD se dibuja a esa misma escala.
+
 ---
 
 ## 🧙 Personalización

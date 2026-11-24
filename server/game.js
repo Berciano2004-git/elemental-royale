@@ -28,6 +28,7 @@ import {
 } from '../shared/constants.js';
 import { HALF_WORLD } from '../shared/constants.js';
 import { clamp, createWorld, elevationAt, findOpenSpot, MOUNTAIN_LEVEL } from '../shared/worldgen.js';
+import { loadBakedMap } from './mapas.js';
 import { moveWithCollision, normalizeInput } from '../shared/movement.js';
 import { SWIM_DEPTH, SWIM_SPEED_MULT } from '../shared/constants.js';
 import { STYLE_COLORS } from '../shared/palette.js';
@@ -201,6 +202,8 @@ function createRoom(options = {}) {
   const code = options.code || 'MAIN';
   const adminEnabled = options.admin !== false;
   const graceSeconds = Math.max(0, num(options.graceSeconds, RECONNECT_GRACE));
+  // Mapa horneado opcional (MAPA=test-8km): sustituye al procedural en esta sala.
+  const mapId = options.mapa ? String(options.mapa) : null;
   const clients = new Map();
   // Magos cuya conexión se ha caído y esperan poder volver. No reciben
   // mensajes, pero siguen vivos en la partida con su sitio y sus poderes.
@@ -302,6 +305,7 @@ function createRoom(options = {}) {
       t: 'start',
       resume: resumed,
       seed: state.seed,
+      map: state.map || null,
       you: player.id,
       storm: stormPublic(),
       players: state.players.map((pl) => ({
@@ -449,8 +453,9 @@ function createRoom(options = {}) {
         p.input.z = n.mz;
         p.input.sprint = !!msg.sprint;
         if (Number.isFinite(msg.ax) && Number.isFinite(msg.az)) {
-          p.aimX = clamp(msg.ax, -HALF_WORLD, HALF_WORLD);
-          p.aimZ = clamp(msg.az, -HALF_WORLD, HALF_WORLD);
+          const half = state.world?.halfSize ?? HALF_WORLD;
+          p.aimX = clamp(msg.ax, -half, half);
+          p.aimZ = clamp(msg.az, -half, half);
         }
         p.lastInputAt = state.matchTime;
         break;
@@ -491,8 +496,9 @@ function createRoom(options = {}) {
           const x = num(msg.x, NaN);
           const z = num(msg.z, NaN);
           if (!Number.isFinite(x) || !Number.isFinite(z)) return;
-          const cx = clamp(x, -HALF_WORLD + 40, HALF_WORLD - 40);
-          const cz = clamp(z, -HALF_WORLD + 40, HALF_WORLD - 40);
+          const half = state.world.halfSize ?? HALF_WORLD;
+          const cx = clamp(x, -half + 40, half - 40);
+          const cz = clamp(z, -half + 40, half - 40);
           if (!state.world.canStand(cx, cz, tune.radius)) {
             send(client.ws, { t: 'adminTeleport', ok: false, msg: 'Ese punto está bloqueado o fuera del terreno.' });
             return;
@@ -593,10 +599,13 @@ function createRoom(options = {}) {
     if (humans.length === 0) return;
 
     const seed = (Math.random() * 1_000_000_000) | 0;
-    const world = createWorld(seed);
+    // Con mapa horneado la semilla no dibuja nada: el terreno sale de los bytes
+    // horneados, idénticos en servidor y cliente.
+    const world = mapId ? loadBakedMap(mapId) : createWorld(seed);
     state = {
       phase: 'match',
       seed,
+      map: mapId,
       world,
       matchTime: 0,
       players: [],
@@ -695,15 +704,26 @@ function createRoom(options = {}) {
   }
 
   function makeSpawnPoints(world, count) {
+    const half = world.halfSize ?? HALF_WORLD;
+    // Un mapa horneado trae sus apariciones ya comprobadas sobre su terreno.
+    if (world.spawns && world.spawns.length) {
+      const pool = [...world.spawns];
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+      return Array.from({ length: count }, (_, i) => pool[i % pool.length]);
+    }
+    const scale = (world.size || 2400) / 2400;
     const points = [];
     const offset = Math.random() * Math.PI * 2;
     for (let i = 0; i < count; i++) {
       let spot = null;
       for (let attempt = 0; attempt < 16 && !spot; attempt++) {
         const angle = offset + (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
-        const radius = 690 + Math.random() * 250;
-        const x = clamp(Math.cos(angle) * radius, -HALF_WORLD + 80, HALF_WORLD - 80);
-        const z = clamp(Math.sin(angle) * radius, -HALF_WORLD + 80, HALF_WORLD - 80);
+        const radius = (690 + Math.random() * 250) * scale;
+        const x = clamp(Math.cos(angle) * radius, -half + 80, half - 80);
+        const z = clamp(Math.sin(angle) * radius, -half + 80, half - 80);
         if (!world.canStand(x, z, 4)) continue;
         if (points.some((pt) => Math.hypot(pt.x - x, pt.z - z) < 70)) continue;
         spot = { x, z };
@@ -732,7 +752,7 @@ function createRoom(options = {}) {
     const storm = {
       cx,
       cz,
-      r: 1750,
+      r: 1750 * ((world.size || 2400) / 2400),
       phase: 0,
       mode: 'wait',
       timer: STORM_PHASES[0].wait,
@@ -746,8 +766,10 @@ function createRoom(options = {}) {
 
   function planNextStorm(storm) {
     const phase = STORM_PHASES[Math.min(storm.phase, STORM_PHASES.length - 1)];
-    const targetR = phase.radius;
-    const maxShift = Math.max(0, Math.min(storm.r - targetR - 25, 780));
+    // Los radios de las fases están pensados para 2400 m: se escalan al mapa.
+    const scale = (state.world.size || 2400) / 2400;
+    const targetR = phase.radius * scale;
+    const maxShift = Math.max(0, Math.min(storm.r - targetR - 25, 780 * scale));
     for (let i = 0; i < 80; i++) {
       const angle = Math.random() * Math.PI * 2;
       const dist = Math.sqrt(Math.random()) * maxShift;
@@ -803,10 +825,11 @@ function createRoom(options = {}) {
       [elements[i], elements[j]] = [elements[j], elements[i]];
     }
 
+    const half = world.halfSize ?? HALF_WORLD;
     const randomLand = () => {
       for (let attempt = 0; attempt < 60; attempt++) {
-        const x = (Math.random() * 2 - 1) * (HALF_WORLD - 90);
-        const z = (Math.random() * 2 - 1) * (HALF_WORLD - 90);
+        const x = (Math.random() * 2 - 1) * (half - 90);
+        const z = (Math.random() * 2 - 1) * (half - 90);
         if (!world.canStand(x, z, 3.4)) continue;
         if (state.pickups.some((p) => Math.hypot(p.x - x, p.z - z) < 46)) continue;
         return { x, z };
@@ -814,14 +837,19 @@ function createRoom(options = {}) {
       return null;
     };
 
-    for (let i = 0; i < 74; i++) {
+    // La densidad se mantiene: un mapa 11 veces mayor necesita más botín.
+    const areaFactor = ((world.size || 2400) / 2400) ** 2;
+    const powerCount = Math.min(400, Math.round(74 * areaFactor));
+    const healCount = Math.min(120, Math.round(22 * areaFactor));
+
+    for (let i = 0; i < powerCount; i++) {
       const spot = randomLand();
       if (!spot) continue;
       const element = elements[i % elements.length];
       spawnPickup('power', element, rollRarity(), spot.x, spot.z);
     }
 
-    for (let i = 0; i < 22; i++) {
+    for (let i = 0; i < healCount; i++) {
       const spot = randomLand();
       if (!spot) continue;
       spawnPickup('heal', null, 'common', spot.x, spot.z);
@@ -1889,12 +1917,17 @@ function createRoom(options = {}) {
       for (let step = 0; step < steps; step++) {
         pr.x += stepX;
         pr.z += stepZ;
-        if (pr.x < -HALF_WORLD || pr.x > HALF_WORLD || pr.z < -HALF_WORLD || pr.z > HALF_WORLD) {
+        const half = s.world.halfSize ?? HALF_WORLD;
+        if (pr.x < -half || pr.x > half || pr.z < -half || pr.z > half) {
           impact = true;
           break;
         }
-        const elev = elevationAt(pr.x, pr.z, s.seed);
-        if (elev < 0.4 || elev > MOUNTAIN_LEVEL - 0.004) {
+        // En un mapa horneado el impacto se decide por la altura y la pendiente
+        // del terreno; en el procedural, por la elevación normalizada.
+        const blocked = s.world.baked
+          ? s.world.heightAt(pr.x, pr.z) < s.world.seaLevel + 0.5 || s.world.slopeAt(pr.x, pr.z) > 0.62
+          : elevationAt(pr.x, pr.z, s.seed) < 0.4 || elevationAt(pr.x, pr.z, s.seed) > MOUNTAIN_LEVEL - 0.004;
+        if (blocked) {
           impact = true;
           break;
         }
@@ -2368,7 +2401,7 @@ function createRoom(options = {}) {
 // socket es un `join` con su código, y a partir de ahí todo va a esa sala.
 export function createGame(wss, options = {}) {
   const rooms = new Map();
-  const roomOptions = { admin: options.admin !== false, graceSeconds: options.graceSeconds };
+  const roomOptions = { admin: options.admin !== false, graceSeconds: options.graceSeconds, mapa: options.mapa };
   const limits = {
     connectionsPerIp: limitOption(
       options.connectionsPerIp ?? process.env.MAX_CONNECTIONS_PER_IP,

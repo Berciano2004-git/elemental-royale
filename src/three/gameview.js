@@ -11,6 +11,7 @@ import {
 } from '../../shared/constants.js';
 import { moveWithCollision, normalizeInput } from '../../shared/movement.js';
 import { createWorld } from '../../shared/worldgen.js';
+import { cargarMapa } from './mapas.js';
 import { WorldView } from './world.js';
 import { EffectsView } from './effects.js';
 import { createWizard } from './wizard.js';
@@ -226,6 +227,14 @@ export class GameView {
     }
   }
 
+  // La niebla y el plano lejano siguen la escala del mapa: con 8 km, la niebla
+  // del mapa pequeño dejaría el horizonte a media isla.
+  applyWorldScale(size) {
+    this.scene.fog = new THREE.Fog(0xcfe7f2, size * 0.27, size * 0.77);
+    this.camera.far = size * 1.6;
+    this.camera.updateProjectionMatrix();
+  }
+
   resize() {
     const width = window.innerWidth;
     const height = window.innerHeight;
@@ -240,11 +249,13 @@ export class GameView {
     this.selfId = data.you;
     this.time = 0;
     this.matchActive = true;
-    this.worldData = createWorld(data.seed);
+    // Con mapa importado el terreno viaja horneado; si no, se genera con la semilla.
+    this.worldData = data.map ? await cargarMapa(data.map) : createWorld(data.seed);
+    this.applyWorldScale(this.worldData.size || 2400);
 
     // La construcción es síncrona para que la partida no se quede colgada
     // si la pestaña está en segundo plano (los temporizadores se pausan).
-    this.world = new WorldView(data.seed, this.quality);
+    this.world = new WorldView(this.worldData, this.quality);
     this.world.setProps(this.worldData.props, this.worldData.landmarks);
     this.world.setStorm(data.storm);
     this.world.attach(this.scene);
@@ -484,19 +495,21 @@ export class GameView {
       this.aimFromYaw(this.viewYaw());
       return this.aim;
     }
+    const half = this.worldData?.halfSize ?? HALF_WORLD;
     this.aim.set(
-      Math.max(-HALF_WORLD + 20, Math.min(HALF_WORLD - 20, point.x)),
+      Math.max(-half + 20, Math.min(half - 20, point.x)),
       0,
-      Math.max(-HALF_WORLD + 20, Math.min(HALF_WORLD - 20, point.z))
+      Math.max(-half + 20, Math.min(half - 20, point.z))
     );
     return this.aim;
   }
 
   aimFromYaw(yaw, distance = 60) {
+    const half = this.worldData?.halfSize ?? HALF_WORLD;
     this.aim.set(
-      Math.max(-HALF_WORLD + 20, Math.min(HALF_WORLD - 20, this.selfPred.x + Math.sin(yaw) * distance)),
+      Math.max(-half + 20, Math.min(half - 20, this.selfPred.x + Math.sin(yaw) * distance)),
       0,
-      Math.max(-HALF_WORLD + 20, Math.min(HALF_WORLD - 20, this.selfPred.z + Math.cos(yaw) * distance))
+      Math.max(-half + 20, Math.min(half - 20, this.selfPred.z + Math.cos(yaw) * distance))
     );
     return this.aim;
   }

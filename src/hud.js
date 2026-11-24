@@ -139,8 +139,11 @@ export class HUD {
     this.playerName.textContent = name;
   }
 
-  setMinimapWorld(canvas) {
+  setMinimapWorld(canvas, worldSize = WORLD_SIZE) {
     this.minimapBg = canvas;
+    // El tamaño lo pone el mapa: 2400 en el procedural, 8000 en uno importado.
+    this.worldSize = worldSize;
+    this.halfWorld = worldSize / 2;
   }
 
   setRegion(regionKey) {
@@ -432,7 +435,7 @@ export class HUD {
   drawMinimap(snap) {
     const ctx = this.minimapContext;
     const size = this.minimap.width;
-    const scale = size / WORLD_SIZE;
+    const scale = size / (this.worldSize || WORLD_SIZE);
     if (this.minimapBg) {
       ctx.clearRect(0, 0, size, size);
       ctx.drawImage(this.minimapBg, 0, 0, size, size);
@@ -440,9 +443,10 @@ export class HUD {
       ctx.fillStyle = '#152238';
       ctx.fillRect(0, 0, size, size);
     }
+    const half = this.halfWorld || HALF_WORLD;
     const toMap = (x, z) => ({
-      x: (x + HALF_WORLD) * scale,
-      y: (z + HALF_WORLD) * scale,
+      x: (x + half) * scale,
+      y: (z + half) * scale,
     });
     const storm = snap.storm;
     if (storm) {
